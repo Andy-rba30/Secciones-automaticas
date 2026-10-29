@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Plantilla del bundle. compilar.ps1 reemplaza __SERIE__ por la versión interna de Civil 3D 2027
+  que encuentra en el registro (por ejemplo R26.0) y copia este archivo a ArbaSecciones.bundle.
+-->
+<ApplicationPackage
+    SchemaVersion="1.0"
+    AutodeskProduct="AutoCAD"
+    ProductType="Application"
+    Name="ArbaSecciones"
+    AppVersion="1.0.0"
+    Description="Líneas de muestreo, vistas de sección y láminas por km para Civil 3D 2027"
+    Author="ARBA"
+    ProductCode="{4B8F1D2E-6C3A-4E7B-9A51-2F0D8C6E3B71}"
+    UpgradeCode="{9D2E7C41-3B6F-4A18-8E05-7C1B4F2A6D93}"
+    HelpFile="./Contents/LEEME.txt">
+
+  <CompanyDetails Name="ARBA" />
+
+  <RuntimeRequirements OS="Win64" Platform="Civil3D" SeriesMin="__SERIE__" SeriesMax="__SERIE__" />
+
+  <Components Description="ArbaSecciones">
+    <RuntimeRequirements OS="Win64" Platform="Civil3D" SeriesMin="__SERIE__" SeriesMax="__SERIE__" />
+    <ComponentEntry
+        AppName="ArbaSecciones"
+        Version="1.0.0"
+        ModuleName="./Contents/ArbaSecciones.Plugin.dll"
+        AppDescription="Paleta ARBA · Secciones (comando ARBASEC)"
+        LoadOnAutoCADStartup="True">
+      <Commands GroupName="ARBA">
+        <Command Local="ARBASEC" Global="ARBASEC" />
+        <Command Local="ARBASECLOG" Global="ARBASECLOG" />
+      </Commands>
+    </ComponentEntry>
+  </Components>
+</ApplicationPackage>

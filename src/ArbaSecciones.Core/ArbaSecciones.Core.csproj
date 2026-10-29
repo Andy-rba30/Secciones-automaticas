@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Lógica pura de ArbaSecciones: escala, progresivas, acomodo, paginación y configuración.
+    No referencia ninguna DLL de Autodesk, por eso sus pruebas corren sin AutoCAD.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ArbaSecciones.Core</RootNamespace>
+    <AssemblyName>ArbaSecciones.Core</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="ArbaSecciones.Core.Tests" />
+  </ItemGroup>
+
+</Project>

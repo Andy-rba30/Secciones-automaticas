@@ -1,0 +1,10 @@
+# Compilación
+bin/
+obj/
+artefactos/
+*.user
+.vs/
+
+# Logs y temporales (los logs del plugin van a %LOCALAPPDATA%\ARBA\ArbaSecciones\logs)
+*.log
+*.tmp

@@ -1,0 +1,12 @@
+ArbaSecciones 1.0 para Civil 3D 2027
+
+Comandos
+  ARBASEC     Abre la paleta ARBA · Secciones (también en la cinta: pestaña ARBA > Secciones).
+  ARBASECLOG  Abre la carpeta de logs.
+
+Archivos fuera del bundle
+  Configuración: %APPDATA%\ARBA\ArbaSecciones\configuracion.json
+  Logs:          %LOCALAPPDATA%\ARBA\ArbaSecciones\logs
+
+Desinstalar
+  Cerrar Civil 3D y borrar %APPDATA%\Autodesk\ApplicationPlugins\ArbaSecciones.bundle

@@ -1,0 +1,47 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Plugin de Civil 3D 2027 (.NET 10). Se compila contra las DLL de la instalación de Civil 3D.
+    compilar.ps1 detecta la carpeta de instalación y pasa cada ruta; también se puede pasar a mano:
+      dotnet build -c Release -p:AcadDir="C:\Program Files\Autodesk\AutoCAD 2027"
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <PlatformTarget>x64</PlatformTarget>
+    <RootNamespace>ArbaSecciones.Plugin</RootNamespace>
+    <AssemblyName>ArbaSecciones.Plugin</AssemblyName>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <GenerateRuntimeConfigurationFiles>false</GenerateRuntimeConfigurationFiles>
+
+    <AcadDir Condition="'$(AcadDir)' == ''">C:\Program Files\Autodesk\AutoCAD 2027</AcadDir>
+    <AcCoreMgdPath Condition="'$(AcCoreMgdPath)' == ''">$(AcadDir)\accoremgd.dll</AcCoreMgdPath>
+    <AcDbMgdPath Condition="'$(AcDbMgdPath)' == ''">$(AcadDir)\acdbmgd.dll</AcDbMgdPath>
+    <AcMgdPath Condition="'$(AcMgdPath)' == ''">$(AcadDir)\acmgd.dll</AcMgdPath>
+    <AdWindowsPath Condition="'$(AdWindowsPath)' == ''">$(AcadDir)\AdWindows.dll</AdWindowsPath>
+    <AecBaseMgdPath Condition="'$(AecBaseMgdPath)' == ''">$(AcadDir)\ACA\AecBaseMgd.dll</AecBaseMgdPath>
+    <AeccDbMgdPath Condition="'$(AeccDbMgdPath)' == ''">$(AcadDir)\C3D\AeccDbMgd.dll</AeccDbMgdPath>
+  </PropertyGroup>
+
+  <!-- Las DLL de Autodesk no se copian: Civil 3D ya las tiene cargadas. -->
+  <ItemGroup>
+    <Reference Include="accoremgd"><HintPath>$(AcCoreMgdPath)</HintPath><Private>false</Private></Reference>
+    <Reference Include="acdbmgd"><HintPath>$(AcDbMgdPath)</HintPath><Private>false</Private></Reference>
+    <Reference Include="acmgd"><HintPath>$(AcMgdPath)</HintPath><Private>false</Private></Reference>
+    <Reference Include="AdWindows"><HintPath>$(AdWindowsPath)</HintPath><Private>false</Private></Reference>
+    <Reference Include="AecBaseMgd"><HintPath>$(AecBaseMgdPath)</HintPath><Private>false</Private></Reference>
+    <Reference Include="AeccDbMgd"><HintPath>$(AeccDbMgdPath)</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ArbaSecciones.Core\ArbaSecciones.Core.csproj" />
+  </ItemGroup>
+
+  <Target Name="VerificarReferenciasAutodesk" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="!Exists('$(AeccDbMgdPath)')"
+           Text="No se encontró AeccDbMgd.dll en '$(AeccDbMgdPath)'. Use compilar.ps1 o pase -p:AcadDir=&quot;carpeta de Civil 3D 2027&quot;." />
+    <Error Condition="!Exists('$(AcDbMgdPath)')"
+           Text="No se encontró acdbmgd.dll en '$(AcDbMgdPath)'. Use compilar.ps1 o pase -p:AcadDir=&quot;carpeta de Civil 3D 2027&quot;." />
+  </Target>
+
+</Project>
