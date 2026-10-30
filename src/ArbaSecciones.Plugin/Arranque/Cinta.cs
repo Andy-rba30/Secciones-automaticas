@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -8,18 +11,30 @@ using AcApp = Autodesk.AutoCAD.ApplicationServices.Application;
 namespace ArbaSecciones.Plugin.Arranque;
 
 /// <summary>
-/// Pestaña "ARBA" de la cinta. Si otra herramienta ARBA ya creó la pestaña, solo se agrega el panel.
+/// Pestaña compartida "ARBA" de la cinta (Id: ARBA_PESTANA).
+/// Se integra en la pestaña ARBA existente junto con los demás plugins (PlanimetriaCogo, VisibilidadParada, etc.).
+/// Si la pestaña ya existe, agrega únicamente el panel "Secciones" sin duplicar la pestaña.
 /// Se vuelve a crear al cambiar de espacio de trabajo (WSCURRENT).
 /// </summary>
 internal static class Cinta
 {
-    private const string IdPestana = "ARBA";
+    public const string IdPestana = "ARBA_PESTANA";
+    public const string TituloPestana = "ARBA";
     private const string IdPanel = "ARBA_SECCIONES";
+    private const string TituloPanel = "Secciones";
+    private const string IdBotonPaleta = "ARBA_SECCIONES_PALETA";
 
     public static void Registrar()
     {
-        if (ComponentManager.Ribbon != null) Crear();
-        else ComponentManager.ItemInitialized += AlInicializarCinta;
+        if (ComponentManager.Ribbon != null)
+        {
+            Crear();
+        }
+        else
+        {
+            ComponentManager.ItemInitialized += AlInicializarCinta;
+            AcApp.Idle += AlEstarInactivo;
+        }
 
         AcApp.SystemVariableChanged += AlCambiarVariable;
     }
@@ -28,47 +43,167 @@ internal static class Cinta
     {
         if (ComponentManager.Ribbon == null) return;
         ComponentManager.ItemInitialized -= AlInicializarCinta;
+        AcApp.Idle -= AlEstarInactivo;
+        Crear();
+    }
+
+    private static void AlEstarInactivo(object? sender, EventArgs e)
+    {
+        if (ComponentManager.Ribbon == null) return;
+        AcApp.Idle -= AlEstarInactivo;
+        ComponentManager.ItemInitialized -= AlInicializarCinta;
         Crear();
     }
 
     private static void AlCambiarVariable(object? sender, Autodesk.AutoCAD.ApplicationServices.SystemVariableChangedEventArgs e)
     {
-        if (string.Equals(e.Name, "WSCURRENT", StringComparison.OrdinalIgnoreCase)) Crear();
+        if (string.Equals(e.Name, "WSCURRENT", StringComparison.OrdinalIgnoreCase))
+        {
+            Crear();
+        }
+    }
+
+    /// <summary>
+    /// Obtiene la pestaña ARBA compartida o la crea si ningún plugin la ha creado todavía.
+    /// Si existe un duplicado antiguo creado con Id "ARBA", lo unifica y elimina para evitar pestañas dobles.
+    /// </summary>
+    public static RibbonTab? ObtenerPestana()
+    {
+        RibbonControl? cinta = ComponentManager.Ribbon;
+        if (cinta == null) return null;
+
+        RibbonTab? pestanaOficial = null;
+        var pestañasArba = new List<RibbonTab>();
+
+        foreach (var t in cinta.Tabs)
+        {
+            if (t.Id == IdPestana)
+            {
+                pestanaOficial = t;
+            }
+            if (t.Id == IdPestana ||
+                string.Equals(t.Id, "ARBA", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(t.Title, TituloPestana, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(t.Name, TituloPestana, StringComparison.OrdinalIgnoreCase))
+            {
+                pestañasArba.Add(t);
+            }
+        }
+
+        // Si ya existe la oficial, unificamos y removemos cualquier pestaña duplicada que haya quedado huérfana
+        if (pestanaOficial != null)
+        {
+            foreach (var otra in pestañasArba.Where(t => !ReferenceEquals(t, pestanaOficial)).ToList())
+            {
+                // Mover paneles que no existan en la oficial
+                foreach (var p in otra.Panels.ToList())
+                {
+                    otra.Panels.Remove(p);
+                    if (!pestanaOficial.Panels.Any(op => op.Source != null && op.Source.Id == p.Source?.Id))
+                    {
+                        pestanaOficial.Panels.Add(p);
+                    }
+                }
+                cinta.Tabs.Remove(otra);
+            }
+            return pestanaOficial;
+        }
+
+        // Si no existe con Id oficial pero sí por título/nombre, reutilizar la primera encontrada
+        if (pestañasArba.Count > 0)
+        {
+            var principal = pestañasArba[0];
+            return principal;
+        }
+
+        // No existe ninguna pestaña ARBA; crear la pestaña estándar compartida
+        var nueva = new RibbonTab
+        {
+            Id = IdPestana,
+            Title = TituloPestana,
+            Name = TituloPestana,
+            IsVisible = true
+        };
+        cinta.Tabs.Add(nueva);
+        return nueva;
+    }
+
+    /// <summary>Obtiene el panel de Secciones dentro de la pestaña ARBA o lo crea si no existe.</summary>
+    public static RibbonPanel? ObtenerPanel(string id, string titulo)
+    {
+        var pestana = ObtenerPestana();
+        if (pestana == null) return null;
+
+        foreach (var p in pestana.Panels)
+        {
+            if (p.Source != null && (p.Source.Id == id || string.Equals(p.Source.Title, titulo, StringComparison.OrdinalIgnoreCase)))
+                return p;
+        }
+
+        var panel = new RibbonPanel
+        {
+            Source = new RibbonPanelSource
+            {
+                Id = id,
+                Title = titulo,
+                Name = titulo
+            }
+        };
+        pestana.Panels.Add(panel);
+        return panel;
     }
 
     private static void Crear()
     {
-        RibbonControl? cinta = ComponentManager.Ribbon;
-        if (cinta == null) return;
-
-        RibbonTab? pestana = cinta.Tabs.FirstOrDefault(t => t.Id == IdPestana);
-        if (pestana == null)
+        try
         {
-            pestana = new RibbonTab { Id = IdPestana, Title = "ARBA" };
-            cinta.Tabs.Add(pestana);
+            var panel = ObtenerPanel(IdPanel, TituloPanel);
+            if (panel == null) return;
+
+            // Evitar duplicar el botón si ya está presente en el panel
+            foreach (var item in panel.Source.Items)
+            {
+                if (item is RibbonButton existente && existente.Id == IdBotonPaleta)
+                    return;
+            }
+
+            var boton = new RibbonButton
+            {
+                Id = IdBotonPaleta,
+                Name = "Secciones transversales",
+                Text = "Secciones\ntransversales",
+                ShowText = true,
+                ShowImage = true,
+                Size = RibbonItemSize.Large,
+                Orientation = System.Windows.Controls.Orientation.Vertical,
+                LargeImage = Iconos.Crear(32),
+                Image = Iconos.Crear(16),
+                CommandParameter = "ARBASEC",
+                CommandHandler = new ComandoCinta("ARBASEC"),
+                ToolTip = new RibbonToolTip
+                {
+                    Title = "Secciones transversales",
+                    Command = "ARBASEC",
+                    Content = "Líneas de muestreo, vistas de sección y armado de láminas por km (paleta ARBA).",
+                    IsHelpEnabled = false,
+                }
+            };
+
+            panel.Source.Items.Add(boton);
         }
-        if (pestana.Panels.Any(p => p.Source != null && p.Source.Id == IdPanel)) return;
-
-        var fuente = new RibbonPanelSource { Id = IdPanel, Title = "Secciones" };
-        fuente.Items.Add(new RibbonButton
+        catch (System.Exception ex)
         {
-            Id = "ARBA_SECCIONES_PALETA",
-            Text = "Secciones\ntransversales",
-            ShowText = true,
-            ShowImage = true,
-            Size = RibbonItemSize.Large,
-            Orientation = System.Windows.Controls.Orientation.Vertical,
-            LargeImage = Iconos.Crear(32),
-            Image = Iconos.Crear(16),
-            CommandParameter = "_ARBASEC ",
-            CommandHandler = new ManejadorComando(),
-        });
-        pestana.Panels.Add(new RibbonPanel { Source = fuente });
+            var doc = AcApp.DocumentManager.MdiActiveDocument;
+            doc?.Editor.WriteMessage("\nArbaSecciones: error al configurar la pestaña ARBA: " + ex.Message);
+        }
     }
 
-    /// <summary>Envía el comando del botón a la línea de comandos del dibujo activo.</summary>
-    private sealed class ManejadorComando : ICommand
+    /// <summary>Envía el comando a la línea de comandos de AutoCAD/Civil 3D.</summary>
+    private sealed class ComandoCinta : ICommand
     {
+        private readonly string _comando;
+        public ComandoCinta(string comando) => _comando = comando;
+
         public event EventHandler? CanExecuteChanged
         {
             add { }
@@ -79,13 +214,14 @@ internal static class Cinta
 
         public void Execute(object? parameter)
         {
-            if (parameter is not RibbonCommandItem boton || boton.CommandParameter is not string comando) return;
+            string cmd = parameter as string ?? (parameter as RibbonCommandItem)?.CommandParameter as string ?? _comando;
             var doc = AcApp.DocumentManager.MdiActiveDocument;
-            doc?.SendStringToExecute(comando, true, false, false);
+            if (doc == null) return;
+            doc.SendStringToExecute("_." + cmd.TrimStart('_', '.') + " ", true, false, true);
         }
     }
 
-    /// <summary>Ícono dibujado en código (terreno y rasante) para no depender de archivos de imagen.</summary>
+    /// <summary>Ícono vectorial dibujado en código (terreno y rasante) para no depender de archivos de imagen externos.</summary>
     private static class Iconos
     {
         public static ImageSource Crear(int lado)
@@ -94,16 +230,24 @@ internal static class Cinta
             var visual = new DrawingVisual();
             using (DrawingContext dc = visual.RenderOpen())
             {
-                var marco = new Pen(new SolidColorBrush(Color.FromRgb(0x5A, 0x63, 0x70)), 1.5 * s);
-                var terreno = new Pen(new SolidColorBrush(Color.FromRgb(0x8B, 0x5E, 0x34)), 2 * s);
-                var rasante = new Pen(new SolidColorBrush(Color.FromRgb(0x1F, 0x6F, 0xB5)), 2.5 * s);
-                dc.DrawRectangle(Brushes.White, marco, new Rect(2 * s, 4 * s, 28 * s, 24 * s));
-                dc.DrawLine(terreno, new Point(3 * s, 20 * s), new Point(10 * s, 14 * s));
-                dc.DrawLine(terreno, new Point(10 * s, 14 * s), new Point(18 * s, 17 * s));
-                dc.DrawLine(terreno, new Point(18 * s, 17 * s), new Point(29 * s, 10 * s));
-                dc.DrawLine(rasante, new Point(8 * s, 18 * s), new Point(12 * s, 15 * s));
-                dc.DrawLine(rasante, new Point(12 * s, 15 * s), new Point(20 * s, 15 * s));
-                dc.DrawLine(rasante, new Point(20 * s, 15 * s), new Point(24 * s, 12 * s));
+                // Fondo redondeado elegante en gris oscuro / acero suave
+                dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromRgb(0x2D, 0x37, 0x48)), null, new Rect(0, 0, lado, lado), 4 * s, 4 * s);
+
+                // Cuadro interno de la sección
+                var marco = new Pen(new SolidColorBrush(Color.FromArgb(0x80, 0xFF, 0xFF, 0xFF)), 1.0 * s);
+                dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(0x1A, 0x20, 0x2C)), marco, new Rect(3 * s, 5 * s, 26 * s, 22 * s));
+
+                // Terreno natural (marrón claro / ocre)
+                var terreno = new Pen(new SolidColorBrush(Color.FromRgb(0xD6, 0x9E, 0x2E)), 2.0 * s);
+                dc.DrawLine(terreno, new Point(4 * s, 21 * s), new Point(11 * s, 15 * s));
+                dc.DrawLine(terreno, new Point(11 * s, 15 * s), new Point(19 * s, 18 * s));
+                dc.DrawLine(terreno, new Point(19 * s, 18 * s), new Point(28 * s, 11 * s));
+
+                // Rasante / sección vial (azul cian brillante)
+                var rasante = new Pen(new SolidColorBrush(Color.FromRgb(0x31, 0x82, 0xCE)), 2.5 * s);
+                dc.DrawLine(rasante, new Point(9 * s, 19 * s), new Point(13 * s, 16 * s));
+                dc.DrawLine(rasante, new Point(13 * s, 16 * s), new Point(21 * s, 16 * s));
+                dc.DrawLine(rasante, new Point(21 * s, 16 * s), new Point(25 * s, 13 * s));
             }
             var bmp = new RenderTargetBitmap(lado, lado, 96, 96, PixelFormats.Pbgra32);
             bmp.Render(visual);
