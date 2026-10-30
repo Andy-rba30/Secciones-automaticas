@@ -1,5 +1,6 @@
 using ArbaSecciones.Core.Acomodo;
 using ArbaSecciones.Core.Escalas;
+using ArbaSecciones.Core.Materiales;
 using ArbaSecciones.Core.Progresivas;
 using System.Text.Json.Serialization;
 
@@ -13,6 +14,7 @@ public sealed class ConfiguracionArba
 
     public const int VersionActual = 2;
     public OpcionesMuestreo Muestreo { get; set; } = new();
+    public ConfigMateriales Materiales { get; set; } = new();
     public ConfigEscala Escala { get; set; } = new();
     public ConfigMembrete Membrete { get; set; } = new();
     public ConfigAcomodo Acomodo { get; set; } = new();
@@ -39,6 +41,15 @@ public sealed class ConfiguracionArba
         Muestreo ??= new OpcionesMuestreo();
         Muestreo.Adicionales ??= new List<double>();
         Muestreo.Fuentes ??= new List<string>();
+        Materiales ??= new ConfigMateriales();
+        Materiales.CodigosRasante ??= new List<string>();
+        Materiales.CodigosSubRasante ??= new List<string>();
+        Materiales.CodigosForma ??= new List<string>();
+        if (string.IsNullOrWhiteSpace(Materiales.NombreRasante)) Materiales.NombreRasante = "Rasante";
+        if (string.IsNullOrWhiteSpace(Materiales.NombreSubRasante)) Materiales.NombreSubRasante = "SubRasante";
+        if (string.IsNullOrWhiteSpace(Materiales.NombreLista)) Materiales.NombreLista = "Movimiento de tierras";
+        if (!(Materiales.FactorEsponjamiento > 0)) Materiales.FactorEsponjamiento = 1.0;
+        if (!(Materiales.FactorCompactacion > 0)) Materiales.FactorCompactacion = 1.0;
         Escala ??= new ConfigEscala();
         Membrete ??= new ConfigMembrete();
         Membrete.Atributos ??= ConfigMembrete.AtributosPorDefecto();
@@ -180,4 +191,51 @@ public sealed class ConfigExportacion
     /// <summary>Papel que la versión 1 usaba por defecto para todos los PDF.</summary>
     public const string PapelA1Version1 = "ISO_full_bleed_A1_(841.00_x_594.00_MM)";
     public string NombrePresentacionDwg { get; set; } = "Presentación 1";
+}
+
+/// <summary>Pestaña Materiales: corredor, códigos de las superficies, validación y lista de materiales.</summary>
+public sealed class ConfigMateriales
+{
+    public string? Corredor { get; set; }
+    public string? LineaBase { get; set; }
+
+    public List<string> CodigosRasante { get; set; } = new();
+    public List<string> CodigosSubRasante { get; set; } = new();
+
+    public string NombreRasante { get; set; } = "Rasante";
+    public string NombreSubRasante { get; set; } = "SubRasante";
+    public bool CrearRasante { get; set; } = true;
+    public string? EstiloSuperficie { get; set; }
+    public CorreccionVoladizo VoladizoRasante { get; set; } = CorreccionVoladizo.VinculosSuperiores;
+    public CorreccionVoladizo VoladizoSubRasante { get; set; } = CorreccionVoladizo.VinculosInferiores;
+
+    /// <summary>Superficie TIN del terreno natural.</summary>
+    public string? TerrenoNatural { get; set; }
+
+    /// <summary>Superficie con la que se compara el terreno. Vacío = la SubRasante del corredor.</summary>
+    public string? SuperficieComparacion { get; set; }
+
+    public string NombreLista { get; set; } = "Movimiento de tierras";
+    public double FactorEsponjamiento { get; set; } = 1.0;
+    public double FactorCompactacion { get; set; } = 1.0;
+
+    /// <summary>Códigos de forma que se agregan como materiales de estructura (Pave1, Base…).</summary>
+    public List<string> CodigosForma { get; set; } = new();
+
+    /// <summary>Validar también todas las progresivas del grupo de muestreo.</summary>
+    public bool ValidarGrupoMuestreo { get; set; }
+
+    /// <summary>Agregar a cada vista de sección la tabla de volumen de la lista de materiales.</summary>
+    public bool TablaEnVistas { get; set; }
+
+    public double ToleranciaVertical { get; set; } = 0.001;
+    public double ToleranciaHueco { get; set; } = 0.01;
+    public double ToleranciaDesvio { get; set; } = 0.01;
+
+    public OpcionesEnvolvente Opciones() => new()
+    {
+        ToleranciaVertical = ToleranciaVertical > 0 ? ToleranciaVertical : 0.001,
+        ToleranciaHueco = ToleranciaHueco > 0 ? ToleranciaHueco : 0.01,
+        ToleranciaDesvio = ToleranciaDesvio > 0 ? ToleranciaDesvio : 0.01,
+    };
 }

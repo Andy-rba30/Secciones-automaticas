@@ -8,7 +8,7 @@
     AutodeskProduct="AutoCAD"
     ProductType="Application"
     Name="ArbaSecciones"
-    AppVersion="1.1.0"
+    AppVersion="1.2.0"
     Description="Líneas de muestreo, vistas de sección y láminas por km para Civil 3D 2027"
     Author="ARBA"
     ProductCode="{4B8F1D2E-6C3A-4E7B-9A51-2F0D8C6E3B71}"
@@ -23,7 +23,7 @@
     <RuntimeRequirements OS="Win64" Platform="Civil3D" SeriesMin="__SERIE__" SeriesMax="__SERIE__" />
     <ComponentEntry
         AppName="ArbaSecciones"
-        Version="1.1.0"
+        Version="1.2.0"
         ModuleName="./Contents/ArbaSecciones.Plugin.dll"
         AppDescription="Paleta ARBA · Secciones (comando ARBASEC)"
         LoadOnAutoCADStartup="True">

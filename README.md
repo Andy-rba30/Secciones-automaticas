@@ -42,9 +42,11 @@ dotnet run --project tests\ArbaSecciones.Core.Tests -c Release
 
 ## Uso
 
-Abre Civil 3D 2027: pestaña **ARBA › Secciones** o el comando `ARBASEC`. La paleta tiene cinco pestañas que se usan en orden:
+Abre Civil 3D 2027: pestaña **ARBA › Secciones** o el comando `ARBASEC`. La paleta tiene seis pestañas que se usan en orden:
 
 1. **Muestreo**: alineamiento, grupo, intervalos en tangentes y curvas, puntos notables, fuentes. *Vista previa* y *Crear líneas de muestreo*.
+   **Materiales**: visor de la sección del corredor, detección y validación de los códigos de la Rasante y la SubRasante,
+   creación de esas superficies en el corredor, lista de materiales (corte y relleno), tabla de volúmenes y CSV.
 2. **Membrete**: presentación plantilla (del dibujo, importada de un DWG/DWT o creada con un bloque). Al crearla o importarla, la hoja
    de la presentación se ajusta sola al tamaño del membrete (A0, A1, A2, A3, A4… con su orientación, escala 1:1 y bordes alineados);
    también con el botón *Ajustar hoja al membrete*. Luego *Seleccionar área útil en pantalla*, unidades, franja del cuadro y atributos.
@@ -53,6 +55,15 @@ Abre Civil 3D 2027: pestaña **ARBA › Secciones** o el comando `ARBASEC`. La p
 5. **Exportar**: PDF por presentación (en el papel de cada presentación; el campo *Papel* vacío = automático) y DWG independiente por lámina.
 
 Cada pestaña ejecuta solo su etapa. Volver a ejecutar no duplica: pregunta si reemplazar líneas y presentaciones, y reacomoda las vistas existentes.
+
+## Cambios en 1.2.0
+
+- Pestaña **Materiales** entre Muestreo y Membrete: visor interactivo de la sección del corredor (zoom, arrastre, clic en una línea
+  para ver su código, vista previa de las superficies y huecos en rojo), detección automática de los códigos (por envolvente, sin
+  depender de los nombres), validación de continuidad en varias progresivas, creación de las superficies del corredor, lista de
+  materiales con factores, volúmenes por áreas medias con diagrama de masas, CSV y tabla en el modelo.
+- Core: `Materiales/` (modelos, `DetectorEnvolvente`, `ValidadorSuperficie`, `PlanValidacion`, `CalculadorVolumenes`, `ContornoForma`)
+  y la sección `Materiales` de la configuración (los JSON antiguos se leen con valores por defecto). 65 pruebas.
 
 ## Cambios en 1.1.0
 

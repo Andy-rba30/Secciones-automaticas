@@ -6,7 +6,7 @@
 |---|---|---|
 | `ArbaSecciones.Core` (net10.0) | Escala y unidades, progresivas, acomodo y paginación, datos de lámina, configuración JSON, log | No |
 | `ArbaSecciones.Plugin` (net10.0-windows, WPF) | Comandos, cinta ARBA, paleta, servicios que usan la API de AutoCAD y Civil 3D | Sí |
-| `ArbaSecciones.Core.Tests` (consola) | 51 pruebas de la lógica pura, con su propio ejecutor | No |
+| `ArbaSecciones.Core.Tests` (consola) | 65 pruebas de la lógica pura, con su propio ejecutor | No |
 
 La lógica que decide **qué** hacer (cuántas láminas, dónde va cada sección, qué progresivas) está en Core y se prueba sin AutoCAD.
 El plugin solo lee el dibujo, llama a Core y aplica el resultado.
@@ -24,6 +24,9 @@ El plugin solo lee el dibujo, llama a Core y aplica el resultado.
 | `Paginador` + `Empaquetador` | Acomodo por columnas o filas y paginación por km o continua |
 | `SugeridorEscala` | Menor denominador con el que entran las secciones, o con el que cada km cabe en una lámina |
 | `DatosLamina`, `PlantillaTexto` | Valores de los atributos del membrete (`{codigo}`, `{pi}`, `{n:000}`…) |
+| `DetectorEnvolvente` | Envolvente superior (rasante) e inferior (subrasante) de una sección y los códigos que la forman |
+| `ValidadorSuperficie`, `PlanValidacion` | Huecos, desvíos y códigos sobrantes de una superficie; qué progresivas revisar |
+| `CalculadorVolumenes` | Áreas de corte y relleno entre dos líneas, áreas medias, acumulados, masa y CSV |
 | `FormatosPapel` | Reconoce A0…A4 (y alargados ISO 5457) por el tamaño, lee el tamaño del nombre del papel y ordena los papeles candidatos |
 | `AlmacenConfiguracion` | JSON UTF-8 sin BOM, escritura atómica, tolera archivos dañados |
 
@@ -37,6 +40,8 @@ El plugin solo lee el dibujo, llama a Core y aplica el resultado.
 | `ServicioVistas` | Crea las vistas que faltan, aplica el estilo y mide la extensión real de cada una |
 | `ServicioAcomodo` | Mueve las vistas y dibuja un marco por lámina con sus datos en XData |
 | `ServicioMembrete` | Presentación plantilla (importar, crear con bloque) y área útil |
+| `ServicioCorredor` | Lee corredores, líneas base, regiones y la sección (vínculos y formas); crea las superficies del corredor |
+| `ServicioMateriales` | Muestreo de fuentes, lista de materiales (QTO), áreas desde las secciones, tablas de volumen |
 | `ServicioHoja` | Mide el membrete y deja la hoja de la presentación de su tamaño, orientación y posición |
 | `ServicioPresentaciones` | Copia la plantilla por lámina, configura el viewport y llena el membrete |
 | `ServicioExportacion` | PDF por presentación y DWG por lámina |
@@ -45,10 +50,10 @@ El plugin solo lee el dibujo, llama a Core y aplica el resultado.
 ## 3. Flujo de la interfaz
 
 ```
-Muestreo ─► Membrete ─► Acomodo ─► Presentaciones ─► Exportar
-   │            │           │             │               │
- líneas    plantilla +   vistas        layouts         PDF y DWG
-           área útil   acomodadas
+Muestreo ─► Materiales ─► Membrete ─► Acomodo ─► Presentaciones ─► Exportar
+   │            │             │           │             │               │
+ líneas    superficies,   plantilla +   vistas        layouts         PDF y DWG
+           volúmenes      área útil   acomodadas
 ```
 
 Cada pestaña guarda la configuración y ejecuta solo su etapa. Las etapas se comunican por el dibujo
@@ -114,7 +119,61 @@ de vistas y las presentaciones se hacen recién después de confirmar.
 6. Las láminas se clonan de la plantilla y heredan la hoja; el PDF usa el papel de cada presentación. En el DWG por lámina, al llevar
    el membrete a 0,0,0 el origen de trazado se corre lo mismo.
 
-## 9. Fuera del alcance de esta versión
+## 9. Materiales (1.2.0)
+
+### 9.1 Miembros reales de la API de Civil 3D 2027
+
+Comprobados en la referencia de AeccDbMgd **13.9.0.960** (Civil 3D 2027). Varias pistas del encargo no existen con ese nombre:
+`AppliedAssembly.GetLinks()/GetShapes()` son las **propiedades** `Links` y `Shapes`; los factores de la lista no son `CutFactor/FillFactor`
+sino `QTOMaterial.SetFactor(MaterialFactorType, double)`.
+
+| Uso | Miembro |
+|---|---|
+| Corredores del dibujo | `CivilDocument.CorridorCollection` (`IEnumerable<ObjectId>`) |
+| Líneas base y regiones | `Corridor.Baselines` → `Baseline.Name`, `AlignmentId`, `BaselineRegions` → `BaselineRegion.Name`, `StartStation`, `EndStation` |
+| Ensamblaje en una progresiva | `BaselineRegion.AppliedAssemblies.Stations()` (`double[]`) y `.GetItemAt(double)` (tolerancia 1e-4). No se usa `Baseline.SortedStations()` porque no funciona en corredores DREF |
+| Vínculos | `AppliedAssembly.Links` → `CalculatedLink.CorridorCodes` (`CorridorCodeCollection : IEnumerable<string>`), `CalculatedPoints` → `CalculatedPoint.StationOffsetElevationToBaseline` (`Point3d`: Y = desplazamiento) y `XYZ` (Z = elevación) |
+| Formas | `AppliedAssembly.Shapes` → `CalculatedShape.CorridorCodes`, `CalculatedLinks` |
+| Códigos del corredor | `Corridor.GetLinkCodes()`, `GetShapeCodes()` (`string[]`) |
+| Superficies del corredor | `Corridor.CorridorSurfaces` → `SurfaceNames()`, `this[string]`, `Add(string)`, `Add(string, ObjectId estilo)` |
+| Configurarlas | `CorridorSurface.AddLinkCode(string, bool comoLineaDeRotura)`, `RemoveLinkCode(string)`, `LinkCodes()`, `OverhangCorrection` (`OverhangCorrectionType.None/TopLinks/BottomLinks`), `SurfaceStyleId`, `SurfaceId`, `Boundaries.AddCorridorExtentsBoundary(string)`, `Boundaries.BoundaryNames()`, `Boundaries.Remove(string)` |
+| Reconstruir | `Corridor.Rebuild()` |
+| Terreno en el eje | `Alignment.PointLocation`, `Surface.FindElevationAtXY(x, y)` |
+| Muestreo | `SampleLineGroup.GetSectionSources()` (grupo abierto para escritura), `SectionSource.SourceId`, `IsSampled` |
+| Lista de materiales | `SampleLineGroup.MaterialLists` (`QTOMaterialListCollection`) → `Add(string)`, `Remove(QTOMaterialList)`; `QTOMaterialList.Add(string)`, `Guid`; `QTOMaterial.QuantityType` (`MaterialQuantityType.Cut/Fill/Structure`), `SetFactor(MaterialFactorType.Cut/Fill, double)`, `Add(ObjectId superficie)`, `Add(ObjectId corredor, string forma)`; `QTOMaterialItem.Condition` (`MaterialConditionType.Above/Below`) |
+| Secciones | `SampleLine.GetSectionId(ObjectId fuente)`, `Section.SectionPoints` → `SectionPoint.Location` (X = desplazamiento, Y = elevación), `Section.LeftOffset/RightOffset` |
+| Tabla de volumen por vista | `SectionView.VolumeTables.CreateVolumeTable(VolumeTableType.Material, Guid lista)` (lanza `ArgumentException` si ya existe) |
+| Tabla en el modelo | `Table` de AutoCAD (`SetSize`, `Cells[f, c]`, `Columns[c].Width`, `GenerateLayout`). La API no crea la tabla de volumen total de Civil 3D en el modelo: ese es el respaldo |
+
+### 9.2 Detección por envolvente (Core)
+
+1. Se juntan los desplazamientos de todos los vértices de los vínculos con avance horizontal y los puntos donde dos vínculos se cruzan.
+2. En cada intervalo se evalúa, en su punto medio, la elevación de cada vínculo que lo cubre y se elige la mayor (rasante) o la menor
+   (subrasante). Los vínculos verticales (avance ≤ tolerancia) se dibujan pero no se eligen, así no crean huecos falsos.
+3. Los vínculos que coinciden con la envolvente (± 1 mm) cuentan todos para ese tramo.
+4. Códigos: se cubre la envolvente con el menor grupo de códigos eligiendo, en cada paso, el que cubre más ancho sin cubrir menos su ancho
+   fuera de la envolvente. Se informa si un código elegido también está en vínculos fuera de ella (al agregarlo los arrastraría).
+
+### 9.3 Validación
+
+La línea de los códigos elegidos se calcula con su corrección de voladizo (Top Links = la más alta, Bottom Links = la más baja) y se compara
+con la envolvente: huecos (con los códigos presentes y los sugeridos), desvíos, códigos sobrantes, extremos sin daylight. «Validar todo el
+corredor» revisa inicio, medio y fin de cada región, la progresiva de más corte y la de más relleno (rasante − terreno en el eje, si hay terreno
+elegido) y, si se marca, todas las del grupo de muestreo. «Calcular materiales» repite la revisión con los códigos y el voladizo **reales** de la
+SubRasante del corredor y no calcula si hay huecos, salvo «Calcular igual».
+
+### 9.4 Volúmenes
+
+Áreas entre el terreno y la SubRasante con los puntos de sus secciones en cada línea de muestreo (corte = terreno encima, relleno = terreno
+debajo, cortando donde se cruzan), y volúmenes por áreas medias, el método por defecto de Civil 3D. Los acumulados llevan los factores
+(esponjamiento en el corte, compactación en el relleno) y la masa es acumulado de corte − acumulado de relleno. La misma lista se crea como
+lista de materiales de Civil 3D, para comparar con su informe de volúmenes.
+
+Etapas y transacciones: muestrear las fuentes, crear la lista y leer las áreas son tres transacciones seguidas (Civil 3D crea las secciones
+al cerrar el grupo, por eso no se anidan). Cada una queda completa o no se aplica; si se cancela con Esc mientras se leen las áreas, el
+muestreo y la lista ya están completos y solo falta la tabla, que se rehace con «Calcular materiales».
+
+## 10. Fuera del alcance de esta versión
 
 - El cuadro de volúmenes por lámina no se genera: se reserva su franja y lo que se dibuje ahí viaja al DWG exportado.
 - No se usó la biblioteca `ARBA-comun`: la pestaña ARBA se crea aquí y, si otra herramienta ARBA ya la creó, solo se agrega el panel.

@@ -10,7 +10,7 @@ using Microsoft.Win32;
 namespace ArbaSecciones.Plugin.Interfaz;
 
 /// <summary>
-/// Contenido de la paleta: Muestreo | Membrete | Acomodo | Presentaciones | Exportar.
+/// Contenido de la paleta: Muestreo | Materiales | Membrete | Acomodo | Presentaciones | Exportar.
 /// Cada pestaña tiene su vista previa y un botón que ejecuta solo esa etapa.
 /// </summary>
 internal sealed partial class PanelPrincipal : UserControl
@@ -28,6 +28,7 @@ internal sealed partial class PanelPrincipal : UserControl
     {
         var pestanas = new TabControl { Margin = new Thickness(4) };
         pestanas.Items.Add(new TabItem { Header = "Muestreo", Content = Ui.Desplazable(CrearMuestreo()) });
+        pestanas.Items.Add(new TabItem { Header = "Materiales", Content = Ui.Desplazable(CrearMateriales()) });
         pestanas.Items.Add(new TabItem { Header = "Membrete", Content = Ui.Desplazable(CrearMembrete()) });
         pestanas.Items.Add(new TabItem { Header = "Acomodo", Content = Ui.Desplazable(CrearAcomodo()) });
         pestanas.Items.Add(new TabItem { Header = "Presentaciones", Content = Ui.Desplazable(CrearPresentaciones()) });
@@ -61,6 +62,14 @@ internal sealed partial class PanelPrincipal : UserControl
     private void CargarListas(Autodesk.AutoCAD.ApplicationServices.Document doc)
     {
         RefrescarMuestreo(doc);
+        try
+        {
+            RefrescarMateriales(doc);
+        }
+        catch (System.Exception ex) when (ex is ErrorUsuario or Autodesk.AutoCAD.Runtime.Exception or ArgumentException)
+        {
+            Registro.Aviso("Materiales: no se pudieron leer los corredores (" + ex.Message + ").");
+        }
         RefrescarMembrete(doc);
         RefrescarAcomodo(doc);
     }
@@ -70,6 +79,7 @@ internal sealed partial class PanelPrincipal : UserControl
     private void CargarFormulario()
     {
         CargarMuestreo();
+        CargarMateriales();
         CargarMembrete();
         CargarAcomodo();
         CargarPresentaciones();
@@ -80,6 +90,7 @@ internal sealed partial class PanelPrincipal : UserControl
     private void LeerFormulario()
     {
         LeerMuestreo();
+        LeerMateriales();
         LeerMembrete();
         LeerAcomodo();
         LeerPresentaciones();

@@ -22,6 +22,8 @@ La primera compilación real en PC1 confirma cada llamada. Estos miembros son lo
 | `PlotSettings.PlotConfigurationName`, `CanonicalMediaName`, `PlotPaperSize`, `PlotPaperMargins`, `PlotRotation`, `PlotOrigin`; `CustomScale(num, den)` | `Civil/ServicioHoja.cs`, `Civil/ServicioExportacion.cs` |
 | `Extents3d.TransformBy`, `Extents3d.AddExtents`, `Entity.Visible`, `Transaction.GetObject(id, modo, false, true)` | `Civil/ServicioHoja.cs` |
 
+| Miembros de la pestaña Materiales (corredor, superficies de corredor, QTO, secciones, tablas de volumen) | `Civil/ServicioCorredor.cs`, `Civil/ServicioMateriales.cs` (lista completa en `docs/DISENO.md`, 9.1) |
+
 En la versión 1.1.0 los servicios y la paleta se compilaron contra firmas extraídas del `ArbaSecciones.Plugin.dll` que ya
 compiló en PC1 (0 errores); solo los miembros de las tres últimas filas se escribieron a mano.
 
@@ -34,6 +36,17 @@ Si alguno no existe con ese nombre o esa firma, el error de compilación indica 
 - [ ] **Leer fuentes del grupo**: con un grupo existente y con un nombre de grupo nuevo, lista las superficies y obras lineales sin cerrar Civil 3D.
 - [ ] **Hoja al membrete**: crear la plantilla con un membrete A1 en 0,0,0 → la hoja queda A1 horizontal y sus bordes coinciden con el membrete.
   Repetir con A0 (debe girar el A0 vertical de DWG To PDF), A3 vertical y un membrete movido (se mueve todo el espacio papel y el área útil).
+- [ ] **Materiales · pestaña**: aparece entre Muestreo y Membrete; lista los corredores, las líneas base y las progresivas del grupo.
+- [ ] **Materiales · visor**: «Leer sección» dibuja vínculos y formas; la rueda hace zoom, arrastrar mueve, «Ajustar» encuadra; la exageración 5× estira en vertical.
+- [ ] **Materiales · códigos**: pasar el ratón por un código lo pinta en naranja; clic en una línea del visor muestra su código, desplazamientos, longitud y pendiente, y lo marca en la lista.
+- [ ] **Materiales · detección**: «Detectar automáticamente» marca códigos con los que la SubRasante va de daylight a daylight (línea verde continua, sin franjas rojas).
+- [ ] **Materiales · hueco**: desmarcar a propósito el código de la cuneta pinta una franja roja y «Validar esta sección» explica «Falta cubrir … Ahí están los vínculos con código …»; «Aplicar sugerencias» lo vuelve a marcar.
+- [ ] **Materiales · todo el corredor**: «Validar todo el corredor» revisa inicio, medio y fin de cada región (y corte y relleno con terreno elegido); doble clic en una línea del informe lleva el visor a esa progresiva.
+- [ ] **Materiales · superficies**: «Crear / actualizar superficies» deja Rasante (Top Links) y SubRasante (Bottom Links) con los códigos como líneas de rotura y el contorno de extensión del corredor; repetir pregunta si reemplazar.
+- [ ] **Materiales · cálculo**: con la SubRasante con huecos no calcula (salvo «Calcular igual»); sin huecos crea la lista «Movimiento de tierras» y llena la tabla.
+- [ ] **Materiales · comparación**: los volúmenes totales difieren menos de 0,5 % del informe de volúmenes de Civil 3D (*Analizar › Informe de volumen*) con la misma lista.
+- [ ] **Materiales · salidas**: el CSV abre en Excel con tildes y números; «Insertar tabla de volúmenes» pide un punto y crea la tabla; con la casilla marcada, cada vista de sección muestra su tabla de volumen.
+- [ ] **Materiales · Esc**: cancelar con Esc a mitad de «Validar todo el corredor» o del cálculo no deja nada a medias.
 - [ ] **Líneas de muestreo**: se crean a esas progresivas con los anchos pedidos; volver a crear pregunta si reemplazar o agregar solo las que faltan.
 - [ ] **Escala en papel**: a 1:200, medir en la presentación 10 m del modelo (por ejemplo una línea de rejilla de la vista): deben ser 50 mm.
 - [ ] **Textos**: los textos de rejilla y bandas miden en papel la altura definida en los estilos.
