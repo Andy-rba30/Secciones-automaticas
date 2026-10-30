@@ -46,7 +46,8 @@ Abre Civil 3D 2027: pestaña **ARBA › Secciones** o el comando `ARBASEC`. La p
 
 1. **Muestreo**: alineamiento, grupo, intervalos en tangentes y curvas, puntos notables, fuentes. *Vista previa* y *Crear líneas de muestreo*.
    **Materiales**: visor de la sección del corredor, detección y validación de los códigos de la Rasante y la SubRasante,
-   creación de esas superficies en el corredor, lista de materiales (corte y relleno), tabla de volúmenes y CSV.
+   creación de esas superficies en el corredor, lista de materiales (corte y relleno), tabla de volúmenes (estándar o dinámica nativa de
+   Civil 3D, validada y ubicada en un área de la lámina) y CSV.
 2. **Membrete**: presentación plantilla (del dibujo, importada de un DWG/DWT o creada con un bloque). Al crearla o importarla, la hoja
    de la presentación se ajusta sola al tamaño del membrete (A0, A1, A2, A3, A4… con su orientación, escala 1:1 y bordes alineados);
    también con el botón *Ajustar hoja al membrete*. Luego *Seleccionar área útil en pantalla*, unidades, franja del cuadro y atributos.
@@ -55,6 +56,22 @@ Abre Civil 3D 2027: pestaña **ARBA › Secciones** o el comando `ARBASEC`. La p
 5. **Exportar**: PDF por presentación (en el papel de cada presentación; el campo *Papel* vacío = automático) y DWG independiente por lámina.
 
 Cada pestaña ejecuta solo su etapa. Volver a ejecutar no duplica: pregunta si reemplazar líneas y presentaciones, y reacomoda las vistas existentes.
+
+## Cambios en 1.5.0
+
+- **Tabla dinámica nativa de volúmenes de Civil 3D** (pestaña Materiales, paso 6), opcional: la tabla estándar sigue siendo la de siempre y
+  la opción por defecto.
+  - Tipo *Volumen total* o *Volumen de material*, con los estilos de tabla del dibujo. Queda vinculada al grupo de líneas de muestreo y a la
+    lista de materiales, así que se actualiza sola.
+  - *Dividir tabla si excede altura*, *Máx. filas por columna* (0 = automático), *Espaciado entre columnas* y *Dirección*.
+  - *Definir área para tabla en lámina…* (dos puntos en el modelo o en una presentación) o *Usar franja del cuadro…*; alineación
+    (superior izquierda, centro…) y margen. La tabla se mide, se valida contra el área y se centra o alinea. Si no entra, se avisa con las
+    medidas reales en papel y lo que falta, y se ofrece rehacerla con la división que sí entra o borrarla sin dejar el dibujo a medias.
+  - *Validar y ubicar tabla existente…* para una tabla que ya esté en el dibujo.
+  - La API .NET de Civil 3D no crea estas tablas: el plugin fija por API los ajustes de los comandos nativos `AddTotalVolumeTable` /
+    `AddMaterialVolumeTable`, los ejecuta, devuelve los ajustes a como estaban y después mide y ubica (ver `docs/DISENO.md`, sección 10).
+- Core: `Tablas/DimensionesTabla` y `Tablas/ValidadorCabidaTabla`; `ConfigMateriales.TablaVolumen` (los JSON anteriores se leen con la
+  tabla estándar). Plugin: `ServicioTablasVolumen`. 85 pruebas (11 nuevas).
 
 ## Cambios en 1.4.0
 

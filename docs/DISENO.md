@@ -27,6 +27,7 @@ El plugin solo lee el dibujo, llama a Core y aplica el resultado.
 | `DatosLamina`, `PlantillaTexto` | Valores de los atributos del membrete (`{codigo}`, `{pi}`, `{n:000}`…) |
 | `DetectorEnvolvente` | Envolvente superior (rasante) e inferior (subrasante) de una sección y los códigos que la forman |
 | `ValidadorSuperficie`, `PlanValidacion` | Huecos, desvíos y códigos sobrantes de una superficie; qué progresivas revisar |
+| `DimensionesTabla`, `ValidadorCabidaTabla` | Cabida de una tabla en un área: división en columnas, holgura, división sugerida, mensaje con lo que falta, estimación desde la medida y posición según la alineación |
 | `CalculadorVolumenes` | Áreas de corte y relleno entre dos líneas, áreas medias, acumulados, masa y CSV |
 | `FormatosPapel` | Reconoce A0…A4 (y alargados ISO 5457) por el tamaño, lee el tamaño del nombre del papel y ordena los papeles candidatos |
 | `AlmacenConfiguracion` | JSON UTF-8 sin BOM, escritura atómica, tolera archivos dañados |
@@ -42,6 +43,7 @@ El plugin solo lee el dibujo, llama a Core y aplica el resultado.
 | `ServicioAcomodo` | Mueve las vistas y dibuja un marco por lámina con sus datos en XData |
 | `ServicioMembrete` | Presentación plantilla (importar, crear con bloque) y área útil |
 | `ServicioCorredor` | Lee corredores, líneas base, regiones y la sección (vínculos y formas); crea las superficies del corredor |
+| `ServicioTablasVolumen` | Tabla dinámica nativa de volúmenes: estilos, ajustes del comando, creación, medición, validación y ubicación en el área |
 | `ServicioMateriales` | Muestreo de fuentes, lista de materiales (QTO), áreas desde las secciones, tablas de volumen |
 | `ServicioHoja` | Mide el membrete y deja la hoja de la presentación de su tamaño, orientación y posición |
 | `ServicioPresentaciones` | Copia la plantilla por lámina, configura el viewport y llena el membrete |
@@ -178,7 +180,41 @@ Etapas y transacciones: muestrear las fuentes, crear la lista y leer las áreas 
 al cerrar el grupo, por eso no se anidan). Cada una queda completa o no se aplica; si se cancela con Esc mientras se leen las áreas, el
 muestreo y la lista ya están completos y solo falta la tabla, que se rehace con «Calcular materiales».
 
-## 10. Fuera del alcance de esta versión
+## 10. Tablas dinámicas nativas de volúmenes (1.5.0)
+
+### 10.1 Qué expone la API
+
+La referencia .NET de Civil 3D no tiene `TotalVolumeTable.Create` ni `MaterialVolumeTable.Create`: las clases derivadas de
+`Autodesk.Civil.DatabaseServices.Table` son `AlignmentTable`, `LegendTable`, `ParcelSegmentTable`, `ParcelTable`, `PointTable` y
+`SectionViewQuantityTakeoffTable` (esta última es la tabla pegada a cada vista, que se crea con `SectionView.VolumeTables.CreateVolumeTable`).
+Lo que sí está documentado y usa el plugin:
+
+| Uso | Miembro |
+|---|---|
+| Estilos de tabla | `CivilDocument.Styles.TableStyles.QuantityTakeoffTotalVolumeTableStyles` y `.QuantityTakeoffMaterialTableStyles` (`TableStyleCollection`) |
+| Ajustes del comando | `CivilDocument.Settings.GetSettings<SettingsCmdAddTotalVolumeTable>()` / `<SettingsCmdAddMaterialVolumeTable>()` → `TableCreation` |
+| División | `TableCreation.TableStyleId` (`PropertyObjectId`), `SplitTable` (`PropertyBoolean`), `MaximumNumberOfRows` y `MaximumTablesPerStack` (`PropertyInt`), `TableSpacing` (`PropertyDouble`), `TileDirection` (`PropertyEnum<TableTitleDirectionType>`: `Across` / `Down`) |
+| Crear la tabla | Comandos nativos `AddTotalVolumeTable` / `AddMaterialVolumeTable` con `Editor.Command` y `Editor.PauseToken` mientras `CMDNAMES` lo tenga activo |
+
+### 10.2 Flujo
+
+1. Se comprueba que el grupo tenga la lista de materiales (la crea «Calcular materiales») y que exista el estilo elegido.
+2. Se activa el espacio del área (modelo o la presentación donde se dibujó).
+3. Se guardan los ajustes del comando, se fijan los de la paleta (estilo, dividir, máx. filas, espaciado, dirección; máx. por pila = 99
+   para que las partes vayan en una sola fila o columna), se ejecuta el comando y **siempre** se devuelven los ajustes anteriores.
+4. Lo creado se detecta comparando el contenido del espacio antes y después (se prefieren los objetos cuya clase dice *Table*).
+5. Se mide con `GeometricExtents` y todo se pasa a papel: en el modelo, unidades de modelo × factor de la escala de la pestaña Acomodo;
+   en una presentación, 1:1. `ValidadorCabidaTabla` decide con el margen elegido.
+6. Si entra, se mueve con `TransformBy(Matrix3d.Displacement)` a la posición de la alineación elegida (superior izquierda, centro…).
+7. Si no entra, no se toca nada y se explica con medidas (ej. «El área seleccionada de 200.00 × 140.00 mm es insuficiente para la tabla
+   de 320.00 × 195.00 mm. Se requiere ampliar al menos 120.00 mm en ancho y 55.00 mm en alto…»). Con la estructura estimada desde la medida
+   (encabezado de 3 filas) se busca la división de menos columnas que sí entra y se ofrece borrarla y rehacerla así, dejarla o borrarla.
+   Con «0 = auto» la primera tabla sale sin dividir y la división se calcula después de medirla.
+8. «Validar y ubicar tabla existente…» hace los pasos 5 a 7 con una tabla que ya esté en el dibujo (nativa o la estándar), sin borrarla nunca.
+
+El modo estándar (tabla de AutoCAD con los valores del plugin) sigue igual y es la opción por defecto.
+
+## 11. Fuera del alcance de esta versión
 
 - El cuadro de volúmenes por lámina no se genera: se reserva su franja y lo que se dibuje ahí viaja al DWG exportado.
 - No se usó la biblioteca `ARBA-comun`: la pestaña ARBA se crea aquí y, si otra herramienta ARBA ya la creó, solo se agrega el panel.

@@ -6,6 +6,7 @@ using System.Windows.Input;
 using ArbaSecciones.Core.Comun;
 using ArbaSecciones.Core.Configuracion;
 using ArbaSecciones.Core.Materiales;
+using ArbaSecciones.Core.Tablas;
 using ArbaSecciones.Plugin.Civil;
 using ArbaSecciones.Plugin.Infraestructura;
 using Autodesk.AutoCAD.ApplicationServices;
@@ -51,6 +52,22 @@ internal sealed partial class PanelPrincipal
     private readonly CheckBox _chkTablaVistas = Ui.Casilla("Agregar la tabla de volumen de la lista a cada vista de sección");
     private readonly CheckBox _chkCalcularIgual = Ui.Casilla("Calcular igual aunque la SubRasante tenga huecos (bajo mi responsabilidad)");
     private readonly TextBlock _lbVolumenes = Ui.Texto("", atenuado: true);
+
+    // Tabla de volúmenes: estándar (AutoCAD) o dinámica nativa de Civil 3D.
+    private const string EstiloDelComando = "(el que tenga el comando)";
+    private readonly RadioButton _rbTablaEstandar = Ui.Radio("Tabla estándar (existente)", "TipoTablaVolumen", valor: true);
+    private readonly RadioButton _rbTablaDinamica = Ui.Radio("Tabla dinámica nativa de Civil 3D (se actualiza automáticamente)", "TipoTablaVolumen");
+    private readonly ComboBox _cbClaseTabla = Ui.Combo();
+    private readonly ComboBox _cbEstiloTabla = Ui.Combo();
+    private readonly CheckBox _chkDividirTabla = Ui.Casilla("Dividir tabla si excede altura", valor: true);
+    private readonly TextBox _txMaxFilasTabla = Ui.Caja();
+    private readonly TextBox _txEspaciadoTabla = Ui.Caja();
+    private readonly ComboBox _cbDireccionTabla = Ui.Combo();
+    private readonly ComboBox _cbAlineacionTabla = Ui.Combo();
+    private readonly TextBox _txMargenTabla = Ui.Caja();
+    private readonly TextBlock _lbAreaTabla = Ui.Texto("", atenuado: true);
+    private readonly StackPanel _panelTablaDinamica = new();
+    private bool _cargandoTabla;
     private readonly DataGrid _dgVolumenes = new()
     {
         AutoGenerateColumns = true,
@@ -103,6 +120,47 @@ internal sealed partial class PanelPrincipal
             int i = Array.IndexOf(new[] { "Progresiva", "AreaCorte", "AreaRelleno", "VolumenCorte", "VolumenRelleno", "AcumuladoCorte", "AcumuladoRelleno", "Masa" }, e.PropertyName);
             if (i >= 0) e.Column.Header = CalculadorVolumenes.Encabezados[i];
         };
+
+        _cbClaseTabla.Items.Add("Volumen total (AddTotalVolumeTable)");
+        _cbClaseTabla.Items.Add("Volumen de material (AddMaterialVolumeTable)");
+        _cbDireccionTabla.Items.Add("Horizontal (columnas hacia la derecha)");
+        _cbDireccionTabla.Items.Add("Vertical (partes hacia abajo)");
+        foreach (string a in new[] { "Superior izquierda", "Superior centro", "Superior derecha", "Centro izquierda", "Centro",
+                                     "Centro derecha", "Inferior izquierda", "Inferior centro", "Inferior derecha" })
+            _cbAlineacionTabla.Items.Add(a);
+        _rbTablaEstandar.Checked += (_, _) => ActualizarTipoTabla();
+        _rbTablaDinamica.Checked += (_, _) => ActualizarTipoTabla();
+        _chkDividirTabla.Checked += (_, _) => ActualizarTipoTabla();
+        _chkDividirTabla.Unchecked += (_, _) => ActualizarTipoTabla();
+        _cbClaseTabla.SelectionChanged += (_, _) =>
+        {
+            if (_cargandoTabla) return;
+            Ejecutor.Ejecutar("Leer estilos de tabla", LlenarEstilosTabla, silencioso: true);
+        };
+
+        var tablaDinamica = Ui.Formulario();
+        Ui.Fila(tablaDinamica, "Tipo de tabla nativa", _cbClaseTabla);
+        Ui.Fila(tablaDinamica, "Estilo de tabla de volúmenes", _cbEstiloTabla);
+        Ui.Fila(tablaDinamica, "", _chkDividirTabla);
+        Ui.Fila(tablaDinamica, "Máx. filas por columna (0 = auto)", _txMaxFilasTabla);
+        Ui.Fila(tablaDinamica, "Espaciado entre columnas (papel)", _txEspaciadoTabla);
+        Ui.Fila(tablaDinamica, "Dirección de la división", _cbDireccionTabla);
+        _panelTablaDinamica.Children.Add(tablaDinamica);
+        _panelTablaDinamica.Children.Add(Ui.Texto(
+            "Se abre el cuadro de Civil 3D: elige el alineamiento, el grupo de muestreo y la lista de materiales, y coloca la tabla. " +
+            "Luego se mide, se valida contra el área y se alinea en ella. Si no entra, se avisa con las medidas que faltan.", atenuado: true));
+
+        var ubicacionTabla = Ui.Formulario();
+        Ui.Fila(ubicacionTabla, "Alineación en el área", _cbAlineacionTabla);
+        Ui.Fila(ubicacionTabla, "Margen dentro del área (papel)", _txMargenTabla);
+        var areaTabla = Ui.Pila(
+            Ui.Texto("Área en la lámina (para validar y ubicar la tabla):"),
+            ubicacionTabla,
+            Ui.Linea(
+                Ui.Boton("Definir área para tabla en lámina…", DefinirAreaTabla),
+                Ui.Boton("Usar franja del cuadro…", UsarFranjaTabla),
+                Ui.Boton("Quitar área", QuitarAreaTabla)),
+            _lbAreaTabla);
 
         var corredor = Ui.Formulario();
         Ui.Fila(corredor, "Corredor", _cbCorredor);
@@ -165,7 +223,15 @@ internal sealed partial class PanelPrincipal
             Ui.Grupo("6. Resultados", Ui.Pila(
                 _lbVolumenes,
                 _dgVolumenes,
-                Ui.Linea(Ui.Boton("Exportar CSV…", ExportarCsv), Ui.Boton("Insertar tabla de volúmenes", InsertarTablaVolumenes)))));
+                Ui.Titulo("Tabla de volúmenes"),
+                _rbTablaEstandar,
+                _rbTablaDinamica,
+                _panelTablaDinamica,
+                areaTabla,
+                Ui.Linea(
+                    Ui.Boton("Exportar CSV…", ExportarCsv),
+                    Ui.Boton("Insertar tabla de volúmenes", InsertarTablaVolumenes),
+                    Ui.Boton("Validar y ubicar tabla existente…", UbicarTablaExistente)))));
     }
 
     private ElementoDibujo? CorredorElegido => _cbCorredor.SelectedItem as ElementoDibujo;
@@ -190,6 +256,31 @@ internal sealed partial class PanelPrincipal
         _txCompactacion.Text = Ui.Num(m.FactorCompactacion, "0.00");
         _chkValidarGrupo.IsChecked = m.ValidarGrupoMuestreo;
         _chkTablaVistas.IsChecked = m.TablaEnVistas;
+        CargarTablaVolumen();
+    }
+
+    private void CargarTablaVolumen()
+    {
+        ConfigTablaVolumen t = Cfg.Materiales.TablaVolumen;
+        _cargandoTabla = true;
+        try
+        {
+            _rbTablaDinamica.IsChecked = t.Tipo == TipoTablaVolumen.DinamicaNativa;
+            _rbTablaEstandar.IsChecked = t.Tipo != TipoTablaVolumen.DinamicaNativa;
+            _cbClaseTabla.SelectedIndex = t.Clase == ClaseTablaVolumen.Material ? 1 : 0;
+            _chkDividirTabla.IsChecked = t.Dividir;
+            _txMaxFilasTabla.Text = t.MaxFilasPorColumna.ToString(CultureInfo.InvariantCulture);
+            _txEspaciadoTabla.Text = Ui.Num(t.EspaciadoColumnas);
+            _cbDireccionTabla.SelectedIndex = t.Direccion == DireccionDivision.Vertical ? 1 : 0;
+            _cbAlineacionTabla.SelectedIndex = (int)t.Alineacion;
+            _txMargenTabla.Text = Ui.Num(t.Margen);
+        }
+        finally
+        {
+            _cargandoTabla = false;
+        }
+        MostrarAreaTabla();
+        ActualizarTipoTabla();
     }
 
     private void LeerMateriales()
@@ -218,6 +309,122 @@ internal sealed partial class PanelPrincipal
             m.CodigosForma = _panelFormas.Children.OfType<CheckBox>().Where(x => x.IsChecked == true).Select(x => x.Tag as string ?? "").Where(x => x.Length > 0).ToList();
         m.ValidarGrupoMuestreo = _chkValidarGrupo.IsChecked == true;
         m.TablaEnVistas = _chkTablaVistas.IsChecked == true;
+        LeerTablaVolumen();
+    }
+
+    private void LeerTablaVolumen()
+    {
+        ConfigTablaVolumen t = Cfg.Materiales.TablaVolumen;
+        t.Tipo = _rbTablaDinamica.IsChecked == true ? TipoTablaVolumen.DinamicaNativa : TipoTablaVolumen.Estandar;
+        t.Clase = _cbClaseTabla.SelectedIndex == 1 ? ClaseTablaVolumen.Material : ClaseTablaVolumen.VolumenTotal;
+        if (_cbEstiloTabla.Items.Count > 0) t.Estilo = _cbEstiloTabla.SelectedItem is ElementoDibujo e ? e.Nombre : null;
+        t.Dividir = _chkDividirTabla.IsChecked == true;
+        string filas = (_txMaxFilasTabla.Text ?? string.Empty).Trim();
+        t.MaxFilasPorColumna = filas.Length == 0 || filas.Equals("auto", StringComparison.OrdinalIgnoreCase)
+            ? 0
+            : Ui.Entero(_txMaxFilasTabla, "Máx. filas por columna");
+        t.EspaciadoColumnas = Ui.Numero(_txEspaciadoTabla, "Espaciado entre columnas");
+        t.Direccion = _cbDireccionTabla.SelectedIndex == 1 ? DireccionDivision.Vertical : DireccionDivision.Horizontal;
+        t.Alineacion = _cbAlineacionTabla.SelectedIndex >= 0 ? (AlineacionTabla)_cbAlineacionTabla.SelectedIndex : AlineacionTabla.SuperiorIzquierda;
+        t.Margen = Ui.Numero(_txMargenTabla, "Margen dentro del área");
+        if (t.MaxFilasPorColumna < 0) throw new ErrorUsuario("El máximo de filas por columna no puede ser negativo (0 = automático).");
+        if (t.EspaciadoColumnas < 0 || t.Margen < 0) throw new ErrorUsuario("El espaciado y el margen de la tabla no pueden ser negativos.");
+    }
+
+    private void ActualizarTipoTabla()
+    {
+        bool dinamica = _rbTablaDinamica.IsChecked == true;
+        _panelTablaDinamica.IsEnabled = dinamica;
+        bool dividir = _chkDividirTabla.IsChecked == true;
+        _txMaxFilasTabla.IsEnabled = dividir;
+        _txEspaciadoTabla.IsEnabled = dividir;
+        _cbDireccionTabla.IsEnabled = dividir;
+    }
+
+    private void MostrarAreaTabla()
+    {
+        AreaTabla? a = Cfg.Materiales.TablaVolumen.Area;
+        _lbAreaTabla.Text = a is { Definida: true }
+            ? $"Área: {Ui.Num(a.Ancho, "0.##")} × {Ui.Num(a.Alto, "0.##")} " +
+              (a.EnModelo ? "unidades de modelo (espacio modelo)." : $"unidades de papel (presentación «{a.Presentacion}»).")
+            : "Sin área: la tabla queda donde la coloques y no se valida.";
+    }
+
+    /// <summary>Estilos de tabla de volumen total o de material del dibujo, según el tipo elegido.</summary>
+    private void LlenarEstilosTabla(Document doc)
+    {
+        ClaseTablaVolumen clase = _cbClaseTabla.SelectedIndex == 1 ? ClaseTablaVolumen.Material : ClaseTablaVolumen.VolumenTotal;
+        string? previo = (_cbEstiloTabla.SelectedItem as ElementoDibujo)?.Nombre ?? Cfg.Materiales.TablaVolumen.Estilo;
+        _cargandoTabla = true;
+        try
+        {
+            _cbEstiloTabla.Items.Clear();
+            _cbEstiloTabla.Items.Add(EstiloDelComando);
+            foreach (ElementoDibujo e in ServicioTablasVolumen.Estilos(doc, clase)) _cbEstiloTabla.Items.Add(e);
+            Ui.Seleccionar(_cbEstiloTabla, previo);
+            if (_cbEstiloTabla.SelectedIndex < 0) _cbEstiloTabla.SelectedIndex = 0;
+        }
+        finally
+        {
+            _cargandoTabla = false;
+        }
+    }
+
+    private void DefinirAreaTabla()
+    {
+        Ejecutor.Ejecutar("Definir área para la tabla", doc =>
+        {
+            Cfg.Materiales.TablaVolumen.Area = ServicioTablasVolumen.PedirArea(doc);
+            Estado.Guardar();
+            MostrarAreaTabla();
+            Mensaje("Área para la tabla de volúmenes guardada.");
+        });
+    }
+
+    private void UsarFranjaTabla()
+    {
+        Ejecutor.Ejecutar("Usar franja del cuadro", doc =>
+        {
+            Cfg.Materiales.TablaVolumen.Area = ServicioTablasVolumen.AreaDeRectangulo(doc);
+            Estado.Guardar();
+            MostrarAreaTabla();
+            Mensaje("La franja elegida se usará como área para la tabla de volúmenes.");
+        });
+    }
+
+    private void QuitarAreaTabla()
+    {
+        Cfg.Materiales.TablaVolumen.Area = null;
+        Estado.Guardar();
+        MostrarAreaTabla();
+    }
+
+    private void InsertarTablaDinamica()
+    {
+        Ejecutor.Ejecutar("Insertar tabla dinámica de volúmenes", doc =>
+        {
+            ObjectId grupoId = GrupoMuestreo(doc);
+            Mensaje(ServicioTablasVolumen.CrearDinamica(doc, Cfg, grupoId));
+        });
+    }
+
+    private void UbicarTablaExistente()
+    {
+        LeerTablaVolumen();
+        Estado.Guardar();
+        Ejecutor.Ejecutar("Validar y ubicar tabla de volúmenes", doc =>
+        {
+            ObjectId grupoId = ObjectId.Null;
+            try
+            {
+                grupoId = GrupoMuestreo(doc);
+            }
+            catch (ErrorUsuario)
+            {
+                // sin grupo no se puede sugerir una división, pero sí validar y mover
+            }
+            Mensaje(ServicioTablasVolumen.UbicarExistente(doc, Cfg, grupoId));
+        });
     }
 
     /// <summary>Corredores, superficies y estilos del dibujo (al abrir la paleta y con «Actualizar listas»).</summary>
@@ -257,6 +464,7 @@ internal sealed partial class PanelPrincipal
         {
             _cargandoMat = false;
         }
+        LlenarEstilosTabla(doc);
         LlenarDatosCorredor(doc);
     }
 
@@ -708,6 +916,15 @@ internal sealed partial class PanelPrincipal
 
     private void InsertarTablaVolumenes()
     {
+        LeerTablaVolumen();
+        Estado.Guardar();
+        if (Cfg.Materiales.TablaVolumen.Tipo == TipoTablaVolumen.DinamicaNativa)
+        {
+            InsertarTablaDinamica();
+            return;
+        }
+
+        // Tabla estándar (la de siempre): tabla de AutoCAD con los valores calculados.
         if (_filasVolumen.Count == 0) throw new ErrorUsuario("Calcula primero los materiales.");
         string titulo = "VOLÚMENES — " + Cfg.Materiales.NombreLista.ToUpperInvariant();
         List<FilaVolumen> filas = _filasVolumen;

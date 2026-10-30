@@ -2,6 +2,7 @@ using ArbaSecciones.Core.Acomodo;
 using ArbaSecciones.Core.Escalas;
 using ArbaSecciones.Core.Materiales;
 using ArbaSecciones.Core.Progresivas;
+using ArbaSecciones.Core.Tablas;
 using System.Text.Json.Serialization;
 
 namespace ArbaSecciones.Core.Configuracion;
@@ -47,6 +48,8 @@ public sealed class ConfiguracionArba
         Materiales.CodigosRasante ??= new List<string>();
         Materiales.CodigosSubRasante ??= new List<string>();
         Materiales.CodigosForma ??= new List<string>();
+        Materiales.TablaVolumen ??= new ConfigTablaVolumen();
+        Materiales.TablaVolumen.Normalizar();
         if (string.IsNullOrWhiteSpace(Materiales.NombreRasante)) Materiales.NombreRasante = "Rasante";
         if (string.IsNullOrWhiteSpace(Materiales.NombreSubRasante)) Materiales.NombreSubRasante = "SubRasante";
         if (string.IsNullOrWhiteSpace(Materiales.NombreLista)) Materiales.NombreLista = "Movimiento de tierras";
@@ -243,6 +246,9 @@ public sealed class ConfigMateriales
     /// <summary>Agregar a cada vista de sección la tabla de volumen de la lista de materiales.</summary>
     public bool TablaEnVistas { get; set; }
 
+    /// <summary>Tabla de volúmenes del grupo: estándar (AutoCAD, estática) o dinámica nativa de Civil 3D.</summary>
+    public ConfigTablaVolumen TablaVolumen { get; set; } = new();
+
     public double ToleranciaVertical { get; set; } = 0.001;
     public double ToleranciaHueco { get; set; } = 0.01;
     public double ToleranciaDesvio { get; set; } = 0.01;
@@ -253,4 +259,100 @@ public sealed class ConfigMateriales
         ToleranciaHueco = ToleranciaHueco > 0 ? ToleranciaHueco : 0.01,
         ToleranciaDesvio = ToleranciaDesvio > 0 ? ToleranciaDesvio : 0.01,
     };
+}
+
+/// <summary>Qué tabla de volúmenes inserta el botón «Insertar tabla de volúmenes».</summary>
+public enum TipoTablaVolumen
+{
+    /// <summary>Tabla de AutoCAD con los valores calculados por el plugin (no se actualiza sola).</summary>
+    Estandar,
+
+    /// <summary>Tabla de volúmenes de Civil 3D vinculada al grupo de muestreo y a la lista de materiales (se actualiza sola).</summary>
+    DinamicaNativa,
+}
+
+/// <summary>Clase de tabla nativa de Civil 3D.</summary>
+public enum ClaseTablaVolumen
+{
+    /// <summary>Tabla de volumen total (comando AddTotalVolumeTable).</summary>
+    VolumenTotal,
+
+    /// <summary>Tabla de volumen de material (comando AddMaterialVolumeTable).</summary>
+    Material,
+}
+
+/// <summary>Rectángulo designado para la tabla, en unidades del espacio donde se dibujó (modelo o presentación).</summary>
+public sealed class AreaTabla
+{
+    public double MinX { get; set; }
+    public double MinY { get; set; }
+    public double MaxX { get; set; }
+    public double MaxY { get; set; }
+
+    /// <summary>True: el área está en el espacio modelo (unidades de modelo). False: en una presentación (unidades de papel).</summary>
+    public bool EnModelo { get; set; } = true;
+
+    /// <summary>Presentación donde está el área cuando <see cref="EnModelo"/> es false.</summary>
+    public string? Presentacion { get; set; }
+
+    [JsonIgnore] public double Ancho => MaxX - MinX;
+    [JsonIgnore] public double Alto => MaxY - MinY;
+    [JsonIgnore] public bool Definida => Ancho > 1e-9 && Alto > 1e-9 && (EnModelo || !string.IsNullOrWhiteSpace(Presentacion));
+
+    /// <summary>Área a partir de dos esquinas cualesquiera.</summary>
+    public static AreaTabla DesdeEsquinas(double x1, double y1, double x2, double y2, bool enModelo, string? presentacion) => new()
+    {
+        MinX = Math.Min(x1, x2),
+        MinY = Math.Min(y1, y2),
+        MaxX = Math.Max(x1, x2),
+        MaxY = Math.Max(y1, y2),
+        EnModelo = enModelo,
+        Presentacion = enModelo ? null : presentacion,
+    };
+}
+
+/// <summary>Opciones de la tabla de volúmenes (pestaña Materiales, paso 6).</summary>
+public sealed class ConfigTablaVolumen
+{
+    public TipoTablaVolumen Tipo { get; set; } = TipoTablaVolumen.Estandar;
+    public ClaseTablaVolumen Clase { get; set; } = ClaseTablaVolumen.VolumenTotal;
+
+    /// <summary>Nombre del estilo de tabla de Civil 3D. Vacío = el que tenga configurado el comando.</summary>
+    public string? Estilo { get; set; }
+
+    /// <summary>Dividir la tabla si excede la altura (Split table).</summary>
+    public bool Dividir { get; set; } = true;
+
+    /// <summary>Máximo de filas por columna. 0 = automático: se mide la tabla y se calcula cuántas entran en el área.</summary>
+    public int MaxFilasPorColumna { get; set; } = 25;
+
+    /// <summary>Espaciado entre las columnas de la tabla dividida, en unidades de papel.</summary>
+    public double EspaciadoColumnas { get; set; } = 10;
+
+    public DireccionDivision Direccion { get; set; } = DireccionDivision.Horizontal;
+    public AlineacionTabla Alineacion { get; set; } = AlineacionTabla.SuperiorIzquierda;
+
+    /// <summary>Margen libre entre la tabla y el borde del área, en unidades de papel.</summary>
+    public double Margen { get; set; } = 2;
+
+    /// <summary>Área designada para la tabla. Null = no se valida ni se mueve (queda donde se coloque).</summary>
+    public AreaTabla? Area { get; set; }
+
+    /// <summary>Opciones de división en unidades de papel, con las filas por columna indicadas (−1 = las configuradas; 0 = automático).</summary>
+    public OpcionesDivision Division(int filasPorColumna = -1) => new()
+    {
+        Dividir = Dividir,
+        MaxFilasPorColumna = filasPorColumna >= 0 ? filasPorColumna : MaxFilasPorColumna,
+        Espaciado = EspaciadoColumnas,
+        Direccion = Direccion,
+    };
+
+    public ConfigTablaVolumen Normalizar()
+    {
+        if (MaxFilasPorColumna < 0) MaxFilasPorColumna = 0;
+        if (!(EspaciadoColumnas >= 0)) EspaciadoColumnas = 10;
+        if (!(Margen >= 0)) Margen = 0;
+        if (Area != null && !Area.Definida) Area = null;
+        return this;
+    }
 }

@@ -76,6 +76,15 @@ internal static class Ui
         VerticalAlignment = VerticalAlignment.Center,
     };
 
+    public static RadioButton Radio(string texto, string grupo, bool valor = false) => new()
+    {
+        Content = texto,
+        GroupName = grupo,
+        IsChecked = valor,
+        Margin = new Thickness(0, 2, 12, 2),
+        VerticalAlignment = VerticalAlignment.Center,
+    };
+
     public static ComboBox Combo(bool editable = false) => new()
     {
         IsEditable = editable,

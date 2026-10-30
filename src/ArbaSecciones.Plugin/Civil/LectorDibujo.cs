@@ -75,7 +75,7 @@ internal static class LectorDibujo
         return Estilos(doc.Database, civil.Styles.SectionViewBandSetStyles);
     }
 
-    private static List<ElementoDibujo> Estilos(Database db, System.Collections.IEnumerable coleccion)
+    public static List<ElementoDibujo> Estilos(Database db, System.Collections.IEnumerable coleccion)
     {
         var lista = new List<ElementoDibujo>();
         using Transaction tr = db.TransactionManager.StartTransaction();
