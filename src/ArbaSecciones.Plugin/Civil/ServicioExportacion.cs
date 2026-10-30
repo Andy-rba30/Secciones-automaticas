@@ -1,5 +1,7 @@
 using ArbaSecciones.Core.Comun;
 using ArbaSecciones.Core.Configuracion;
+using ArbaSecciones.Core.Escalas;
+using ArbaSecciones.Core.Hojas;
 using ArbaSecciones.Plugin.Infraestructura;
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
@@ -13,7 +15,7 @@ namespace ArbaSecciones.Plugin.Civil;
 internal sealed record ResultadoExportacion(int Pdf, int Dwg, List<string> Avisos);
 
 /// <summary>
-/// Fase 2: un PDF por presentación (A1, escala 1:1) y un DWG independiente por lámina con
+/// Fase 2: un PDF por presentación (en el papel de la presentación, escala 1:1) y un DWG independiente por lámina con
 /// el modelo (solo secciones y cuadro, sin rejilla) y la "Presentación 1" (membrete en 0,0,0 y viewport).
 /// </summary>
 internal static class ServicioExportacion
@@ -29,7 +31,7 @@ internal static class ServicioExportacion
         if (presentaciones.Count == 0) throw new ErrorUsuario($"No hay presentaciones con el prefijo \"{cfg.Presentaciones.Prefijo}\". Créalas primero.");
 
         var avisos = new List<string>();
-        int pdf = cfg.Exportacion.Pdf ? ExportarPdf(doc, presentaciones, carpeta, cfg.Exportacion) : 0;
+        int pdf = cfg.Exportacion.Pdf ? ExportarPdf(doc, presentaciones, carpeta, cfg, avisos) : 0;
         int dwg = cfg.Exportacion.Dwg ? ExportarDwg(doc, cfg, presentaciones, carpeta, avisos) : 0;
 
         LayoutManager.Current.CurrentLayout = presentaciones[0];
@@ -39,7 +41,7 @@ internal static class ServicioExportacion
 
     // ───────────────────────────── PDF ─────────────────────────────
 
-    private static int ExportarPdf(Document doc, List<string> presentaciones, string carpeta, ConfigExportacion cfg)
+    private static int ExportarPdf(Document doc, List<string> presentaciones, string carpeta, ConfiguracionArba cfg, List<string> avisos)
     {
         if (PlotFactory.ProcessPlotState != ProcessPlotState.NotPlotting)
             throw new ErrorUsuario("Hay otro trazado en curso. Espera a que termine.");
@@ -55,7 +57,7 @@ internal static class ServicioExportacion
             {
                 progreso.Avanzar();
                 lm.CurrentLayout = nombre;
-                Trazar(doc, lm.GetLayoutId(nombre), Path.Combine(carpeta, NombreArchivo(nombre) + ".pdf"), cfg);
+                Trazar(doc, nombre, lm.GetLayoutId(nombre), Path.Combine(carpeta, NombreArchivo(nombre) + ".pdf"), cfg, avisos);
                 n++;
             }
         }
@@ -66,28 +68,61 @@ internal static class ServicioExportacion
         return n;
     }
 
-    private static void Trazar(Document doc, ObjectId layoutId, string ruta, ConfigExportacion cfg)
+    /// <summary>
+    /// Traza la presentación a PDF. El papel es el de la presentación (ajustado al membrete al crear la plantilla);
+    /// si el trazador es otro, o si la hoja no alcanza para el membrete, se elige el papel del tamaño necesario.
+    /// Con "Papel" escrito en la pestaña Exportar se usa ese papel en todas.
+    /// </summary>
+    private static void Trazar(Document doc, string nombre, ObjectId layoutId, string ruta, ConfiguracionArba cfg, List<string> avisos)
     {
+        ConfigExportacion ce = cfg.Exportacion;
+        UnidadLongitud unidad = cfg.Membrete.UnidadPapel;
         using Transaction tr = doc.Database.TransactionManager.StartTransaction();
         var layout = (Layout)tr.GetObject(layoutId, OpenMode.ForRead);
         var ajustes = new PlotSettings(layout.ModelType);
         ajustes.CopyFrom(layout);
-
         PlotSettingsValidator psv = PlotSettingsValidator.Current;
-        try
+
+        // Hoja que ya tiene la presentación y tamaño del membrete, antes de cambiar nada.
+        var (anchoHoja, altoHoja) = ServicioHoja.HojaVisible(ajustes);
+        bool mismoTrazador = string.Equals(ajustes.PlotConfigurationName, (ce.Dispositivo ?? "").Trim(), StringComparison.OrdinalIgnoreCase);
+        bool hojaChica = false;
+        ExtensionMembrete? membrete = ServicioHoja.MedirMembrete(tr, layout.BlockTableRecordId, cfg.Membrete.NombreBloque);
+        if (membrete != null)
         {
-            psv.SetPlotConfigurationName(ajustes, cfg.Dispositivo, null);
-            psv.RefreshLists(ajustes);
-            psv.SetPlotConfigurationName(ajustes, cfg.Dispositivo, cfg.Papel);
+            double anchoM = membrete.Ancho * unidad.EnMilimetros(), altoM = membrete.Alto * unidad.EnMilimetros();
+            double tol = FormatosPapel.Tolerancia(anchoM, altoM);
+            if (anchoHoja + tol < anchoM || altoHoja + tol < altoM)
+            {
+                hojaChica = true;
+                anchoHoja = anchoM;
+                altoHoja = altoM;
+            }
         }
-        catch (Autodesk.AutoCAD.Runtime.Exception ex)
-        {
-            throw new ErrorUsuario($"El trazador \"{cfg.Dispositivo}\" no acepta el papel \"{cfg.Papel}\" ({ex.Message}).");
-        }
+
+        string dispositivo = ServicioHoja.UsarDispositivo(psv, ajustes, ce.Dispositivo ?? "");
         psv.SetPlotType(ajustes, AcDb.PlotType.Layout);
-        psv.SetUseStandardScale(ajustes, true);
-        psv.SetStdScaleType(ajustes, StdScaleType.StdScale1To1);
-        psv.SetPlotPaperUnits(ajustes, PlotPaperUnit.Millimeters);
+        if (!string.IsNullOrWhiteSpace(ce.Papel))
+        {
+            try
+            {
+                psv.SetCanonicalMediaName(ajustes, ce.Papel.Trim());
+            }
+            catch (Autodesk.AutoCAD.Runtime.Exception ex)
+            {
+                throw new ErrorUsuario($"El trazador \"{dispositivo}\" no acepta el papel \"{ce.Papel}\" ({ex.Message}).");
+            }
+        }
+        else if (!mismoTrazador || hojaChica || string.IsNullOrEmpty(ajustes.CanonicalMediaName))
+        {
+            OpcionPapel? opcion = ServicioHoja.ElegirPapel(psv, ajustes, anchoHoja, altoHoja, ServicioHoja.Medios(psv, ajustes));
+            if (opcion == null)
+                throw new ErrorUsuario($"El trazador \"{dispositivo}\" no tiene un papel de {FormatosPapel.Describir(anchoHoja, altoHoja)} para {nombre}.");
+            if (hojaChica)
+                avisos.Add($"{nombre}: la hoja de la presentación era más chica que el membrete; el PDF salió en {opcion.Medio.Nombre}. " +
+                           "Usa «Ajustar hoja al membrete» en la pestaña Membrete y vuelve a crear las presentaciones.");
+        }
+        ServicioHoja.AplicarEscala(psv, ajustes, unidad);
 
         var info = new PlotInfo { Layout = layoutId, OverrideSettings = ajustes };
         var validador = new PlotInfoValidator { MediaMatchingPolicy = MatchingPolicy.MatchEnabled };
@@ -248,6 +283,19 @@ internal static class ServicioExportacion
                 }
             }
             tr.Commit();
+        }
+
+        // El membrete va a 0,0,0: el origen de trazado se corre lo mismo para que la hoja siga coincidiendo con él.
+        if (posicionMembrete.HasValue)
+        {
+            Vector3d desplazamiento = Point3d.Origin - posicionMembrete.Value;
+            if (desplazamiento.Length > 1e-9)
+            {
+                double mm = m.UnidadPapel.EnMilimetros();
+                Point2d origenTrazado = trazado.PlotOrigin;
+                PlotSettingsValidator.Current.SetPlotOrigin(trazado,
+                    new Point2d(origenTrazado.X - desplazamiento.X * mm, origenTrazado.Y - desplazamiento.Y * mm));
+            }
         }
 
         Database anterior = HostApplicationServices.WorkingDatabase;

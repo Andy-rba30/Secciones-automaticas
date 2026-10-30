@@ -45,12 +45,23 @@ dotnet run --project tests\ArbaSecciones.Core.Tests -c Release
 Abre Civil 3D 2027: pestaña **ARBA › Secciones** o el comando `ARBASEC`. La paleta tiene cinco pestañas que se usan en orden:
 
 1. **Muestreo**: alineamiento, grupo, intervalos en tangentes y curvas, puntos notables, fuentes. *Vista previa* y *Crear líneas de muestreo*.
-2. **Membrete**: presentación plantilla (del dibujo, importada de un DWG/DWT o creada con un bloque), *Seleccionar área útil en pantalla*, unidades, franja del cuadro y atributos.
+2. **Membrete**: presentación plantilla (del dibujo, importada de un DWG/DWT o creada con un bloque). Al crearla o importarla, la hoja
+   de la presentación se ajusta sola al tamaño del membrete (A0, A1, A2, A3, A4… con su orientación, escala 1:1 y bordes alineados);
+   también con el botón *Ajustar hoja al membrete*. Luego *Seleccionar área útil en pantalla*, unidades, franja del cuadro y atributos.
 3. **Acomodo**: escala (arriba), estilos, orden y paginación. *Medir y simular* muestra el resumen sin mover nada; *Acomodar en el modelo* pide confirmación y mueve las vistas.
 4. **Presentaciones**: una presentación por lámina, con viewport a escala y membrete lleno.
-5. **Exportar**: PDF por presentación y DWG independiente por lámina.
+5. **Exportar**: PDF por presentación (en el papel de cada presentación; el campo *Papel* vacío = automático) y DWG independiente por lámina.
 
 Cada pestaña ejecuta solo su etapa. Volver a ejecutar no duplica: pregunta si reemplazar líneas y presentaciones, y reacomoda las vistas existentes.
+
+## Cambios en 1.1.0
+
+- **Leer fuentes del grupo** ya no cierra Civil 3D: el grupo de líneas de muestreo se abre para escritura antes de pedir sus fuentes,
+  como exige la API (`SampleLineGroup.GetSectionSources()` escribe en el grupo), y el grupo nuevo se crea en su propia transacción.
+- **Hoja ajustada al membrete**: nuevo `ServicioHoja` (plugin) y `FormatosPapel` (Core, con pruebas). Mide el membrete, reconoce el
+  formato, elige el papel del trazador (prefiere "full bleed"), gira la hoja si hace falta y alinea el membrete con los bordes.
+- **PDF**: ya no fuerza A1 a todas las láminas; usa el papel de cada presentación. Las configuraciones guardadas con el A1 por defecto
+  se migran solas a automático.
 
 ## Archivos fuera del proyecto
 

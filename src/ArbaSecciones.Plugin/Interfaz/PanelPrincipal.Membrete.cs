@@ -22,6 +22,8 @@ internal sealed partial class PanelPrincipal
     private readonly TextBlock _lbOrigenBloque = Ui.Texto("Bloques del dibujo actual.", atenuado: true);
     private string? _rutaBloque;
     private readonly TextBlock _lbArea = Ui.Texto("");
+    private readonly CheckBox _chkAjustarHoja = Ui.Casilla("Al crear o importar la plantilla, ajustar la hoja al tamaño del membrete");
+    private readonly TextBlock _lbHoja = Ui.Texto("", atenuado: true);
     private readonly ComboBox _cbUnidadPapel = Ui.Combo();
     private readonly ComboBox _cbUnidadModelo = Ui.Combo();
     private readonly ComboBox _cbBloqueMembrete = Ui.Combo(editable: true);
@@ -90,6 +92,12 @@ internal sealed partial class PanelPrincipal
                 bloque,
                 _lbOrigenBloque,
                 Ui.Linea(Ui.Boton("Bloque de un DWG…", ElegirBloqueDeArchivo), Ui.Boton("Crear plantilla", CrearPlantillaConBloque)))),
+            Ui.Grupo("Hoja (papel de la presentación)", Ui.Pila(
+                Ui.Texto("Lee el tamaño del membrete y pone la hoja de ese formato (A0, A1, A2, A3, A4…) con su orientación, " +
+                         "a escala 1:1 y con los bordes del membrete sobre los de la hoja. Usa el trazador de la pestaña Exportar.", atenuado: true),
+                _chkAjustarHoja,
+                Ui.Boton("Ajustar hoja al membrete", AjustarHojaPlantilla),
+                _lbHoja)),
             Ui.Grupo("Área útil", Ui.Pila(
                 Ui.Texto("Dibuja una polilínea rectangular dentro del membrete y selecciónala.", atenuado: true),
                 Ui.Boton("Seleccionar área útil en pantalla", SeleccionarAreaUtil, principal: true),
@@ -113,6 +121,8 @@ internal sealed partial class PanelPrincipal
         _cbBloqueMembrete.Text = m.NombreBloque ?? "";
         _txFranja.Text = Ui.Num(m.AltoFranjaCuadro);
         _cbPosFranja.SelectedItem = m.PosicionFranja;
+        _chkAjustarHoja.IsChecked = m.AjustarHoja;
+        _lbHoja.Text = string.IsNullOrWhiteSpace(m.Hoja) ? "Hoja sin ajustar." : "Hoja: " + m.Hoja + ".";
         _atributos.Clear();
         foreach (var a in m.Atributos) _atributos.Add(new MapeoAtributo { Etiqueta = a.Etiqueta, Plantilla = a.Plantilla });
         ActualizarInfoArea();
@@ -130,6 +140,7 @@ internal sealed partial class PanelPrincipal
         m.AltoFranjaCuadro = Ui.Numero(_txFranja, "Alto de la franja");
         if (m.AltoFranjaCuadro < 0) throw new ErrorUsuario("El alto de la franja no puede ser negativo.");
         m.PosicionFranja = _cbPosFranja.SelectedItem is PosicionFranja pf ? pf : PosicionFranja.Abajo;
+        m.AjustarHoja = _chkAjustarHoja.IsChecked == true;
 
         _dgAtributos.CommitEdit(DataGridEditingUnit.Row, true);
         m.Atributos = _atributos
@@ -191,8 +202,9 @@ internal sealed partial class PanelPrincipal
             ServicioMembrete.ImportarPresentacion(doc, ruta, origen, destino);
             Cfg.Membrete.RutaPlantilla = ruta;
             Estado.Guardar();
+            string hoja = AjustarHojaTrasInsertar(doc, destino);
             RefrescarMembrete(doc);
-            Mensaje($"Presentación \"{origen}\" importada como \"{destino}\". Ahora selecciona el área útil.");
+            Mensaje($"Presentación \"{origen}\" importada como \"{destino}\".{hoja} Ahora selecciona el área útil.");
         });
     }
 
@@ -230,8 +242,9 @@ internal sealed partial class PanelPrincipal
             Estado.Guardar();
             _rutaBloque = null;
             _lbOrigenBloque.Text = "Bloques del dibujo actual.";
+            string hoja = AjustarHojaTrasInsertar(doc, destino);
             RefrescarMembrete(doc);
-            Mensaje($"Presentación \"{destino}\" creada con el bloque {bloque}. Ahora dibuja y selecciona el área útil.");
+            Mensaje($"Presentación \"{destino}\" creada con el bloque {bloque}.{hoja} Ahora dibuja y selecciona el área útil.");
         });
     }
 
@@ -248,8 +261,9 @@ internal sealed partial class PanelPrincipal
             m.AreaMaxX = area.MaxX;
             m.AreaMaxY = area.MaxY;
 
+            // La unidad de trazado (mm o pulgadas) manda, salvo que el membrete esté dibujado en cm o m (escala de trazado propia).
             UnidadLongitud? papel = ServicioMembrete.UnidadPapel(doc.Database, plantilla);
-            if (papel.HasValue) m.UnidadPapel = papel.Value;
+            if (papel.HasValue && m.UnidadPapel is UnidadLongitud.Milimetros or UnidadLongitud.Pulgadas) m.UnidadPapel = papel.Value;
 
             var bloques = ServicioMembrete.BloquesEnPresentacion(doc.Database, plantilla);
             BloqueMembrete? elegido = bloques.FirstOrDefault(b => string.Equals(b.Nombre, m.NombreBloque, StringComparison.OrdinalIgnoreCase))
@@ -269,6 +283,67 @@ internal sealed partial class PanelPrincipal
                 ? $"Área útil guardada. Membrete: {elegido.Nombre} ({elegido.Etiquetas.Count} atributos)."
                 : "Área útil guardada. No se encontró un bloque con atributos en la plantilla.");
         });
+    }
+
+    private void AjustarHojaPlantilla()
+    {
+        LeerMembrete();
+        LeerExportar();
+        string plantilla = Cfg.Membrete.LayoutPlantilla;
+        Ejecutor.Ejecutar("Ajustar hoja al membrete", doc =>
+        {
+            var lm = Autodesk.AutoCAD.DatabaseServices.LayoutManager.Current;
+            if (!lm.LayoutExists(plantilla))
+                throw new ErrorUsuario($"No existe la presentación \"{plantilla}\". Impórtala o créala primero.");
+            lm.CurrentLayout = plantilla;
+            ResultadoHoja r = AplicarAjusteHoja(doc, plantilla);
+            string avisos = r.Avisos.Count > 0 ? "\n\n" + string.Join("\n", r.Avisos) : "";
+            if (r.Avisos.Count > 0) Dialogos.Info($"Hoja de \"{plantilla}\": {r.Descripcion}.{avisos}");
+            Mensaje($"Hoja de \"{plantilla}\": {r.Descripcion} ({r.Papel})." +
+                    (r.SeMovio ? " Se movió el contenido de la presentación para alinear el membrete con la hoja." : "") +
+                    " Si ya creaste las láminas, vuelve a crearlas para que tomen la hoja nueva.");
+        });
+    }
+
+    /// <summary>Después de crear o importar la plantilla: ajusta la hoja si está marcado. Devuelve el texto para el mensaje.</summary>
+    private string AjustarHojaTrasInsertar(Document doc, string plantilla)
+    {
+        if (!Cfg.Membrete.AjustarHoja) return "";
+        try
+        {
+            ResultadoHoja r = AplicarAjusteHoja(doc, plantilla);
+            return $" Hoja: {r.Descripcion}." + (r.Avisos.Count > 0 ? " " + string.Join(" ", r.Avisos) : "");
+        }
+        catch (ErrorUsuario ex)
+        {
+            ArbaSecciones.Core.Comun.Registro.Aviso("Ajustar hoja: " + ex.Message);
+            return " No se ajustó la hoja: " + ex.Message;
+        }
+        catch (Autodesk.AutoCAD.Runtime.Exception ex)
+        {
+            ArbaSecciones.Core.Comun.Registro.Error("Ajustar hoja", ex);
+            return " No se ajustó la hoja: " + ex.Message;
+        }
+    }
+
+    /// <summary>Ajusta la hoja de la plantilla y guarda lo que cambia en la configuración (unidad, área útil movida, hoja).</summary>
+    private ResultadoHoja AplicarAjusteHoja(Document doc, string plantilla)
+    {
+        ConfigMembrete m = Cfg.Membrete;
+        ResultadoHoja r = ServicioHoja.AjustarAlMembrete(doc, plantilla, m.NombreBloque, m.UnidadPapel, Cfg.Exportacion.Dispositivo);
+        m.UnidadPapel = r.Unidad;
+        m.Hoja = r.Descripcion;
+        if (r.SeMovio && m.AreaDefinida && string.Equals(plantilla, m.LayoutPlantilla, StringComparison.OrdinalIgnoreCase))
+        {
+            // El área útil se dibujó en la plantilla y se movió con ella.
+            m.AreaMinX += r.DesplazamientoX;
+            m.AreaMaxX += r.DesplazamientoX;
+            m.AreaMinY += r.DesplazamientoY;
+            m.AreaMaxY += r.DesplazamientoY;
+        }
+        Estado.Guardar();
+        CargarMembrete();
+        return r;
     }
 
     /// <summary>Deja una fila por atributo del bloque; conserva lo ya configurado y propone el resto por el nombre.</summary>

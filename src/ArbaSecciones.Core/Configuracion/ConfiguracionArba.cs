@@ -8,7 +8,10 @@ namespace ArbaSecciones.Core.Configuracion;
 /// <summary>Toda la configuración reutilizable. Se guarda como JSON en UTF-8.</summary>
 public sealed class ConfiguracionArba
 {
-    public int Version { get; set; } = 1;
+    /// <summary>Versión del formato del archivo. 2: el papel del PDF sale de cada presentación.</summary>
+    public int Version { get; set; } = VersionActual;
+
+    public const int VersionActual = 2;
     public OpcionesMuestreo Muestreo { get; set; } = new();
     public ConfigEscala Escala { get; set; } = new();
     public ConfigMembrete Membrete { get; set; } = new();
@@ -42,6 +45,15 @@ public sealed class ConfiguracionArba
         Acomodo ??= new ConfigAcomodo();
         Presentaciones ??= new ConfigPresentaciones();
         Exportacion ??= new ConfigExportacion();
+        Exportacion.Papel ??= string.Empty;
+
+        // Versión 1 forzaba A1 en todos los PDF. Si quedó ese valor por defecto, ahora se usa el papel de cada presentación.
+        if (Version < 2)
+        {
+            if (string.Equals(Exportacion.Papel, ConfigExportacion.PapelA1Version1, StringComparison.Ordinal))
+                Exportacion.Papel = string.Empty;
+            Version = VersionActual;
+        }
         return this;
     }
 }
@@ -82,6 +94,12 @@ public sealed class ConfigMembrete
     public double AltoFranjaCuadro { get; set; }
 
     public PosicionFranja PosicionFranja { get; set; } = PosicionFranja.Abajo;
+
+    /// <summary>Al crear o importar la plantilla, ajustar el papel de la presentación al tamaño del membrete (A0, A1…).</summary>
+    public bool AjustarHoja { get; set; } = true;
+
+    /// <summary>Última hoja ajustada, solo para mostrarla en la paleta. Ej.: "A1 horizontal (841 × 594 mm)".</summary>
+    public string? Hoja { get; set; }
 
     public List<MapeoAtributo> Atributos { get; set; } = AtributosPorDefecto();
 
@@ -152,6 +170,14 @@ public sealed class ConfigExportacion
     public bool Pdf { get; set; } = true;
     public bool Dwg { get; set; } = true;
     public string Dispositivo { get; set; } = "DWG To PDF.pc3";
-    public string Papel { get; set; } = "ISO_full_bleed_A1_(841.00_x_594.00_MM)";
+
+    /// <summary>
+    /// Papel del PDF (nombre canónico). Vacío = el de cada presentación, que se ajusta al membrete;
+    /// si el trazador de la presentación es otro, se busca en <see cref="Dispositivo"/> el papel del mismo tamaño.
+    /// </summary>
+    public string Papel { get; set; } = string.Empty;
+
+    /// <summary>Papel que la versión 1 usaba por defecto para todos los PDF.</summary>
+    public const string PapelA1Version1 = "ISO_full_bleed_A1_(841.00_x_594.00_MM)";
     public string NombrePresentacionDwg { get; set; } = "Presentación 1";
 }

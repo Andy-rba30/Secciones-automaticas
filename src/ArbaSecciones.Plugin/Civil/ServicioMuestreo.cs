@@ -61,24 +61,52 @@ internal static class ServicioMuestreo
     }
 
     /// <summary>Fuentes disponibles del grupo. Si el grupo no existe y <paramref name="crearSiFalta"/>, lo crea.</summary>
+    /// <remarks>
+    /// GetSectionSources() actualiza la colección de fuentes y la escribe en el grupo antes de devolverla
+    /// (así lo indica la referencia de la API de Civil 3D). Con el grupo abierto solo para lectura Civil 3D
+    /// se cerraba con un error fatal: por eso el grupo se abre para escritura. Además, el grupo nuevo se crea
+    /// y se confirma en su propia transacción antes de leer sus fuentes.
+    /// </remarks>
     public static List<FuenteMuestreo> LeerFuentes(Document doc, ObjectId alineamientoId, string nombreGrupo, bool crearSiFalta)
     {
         var lista = new List<FuenteMuestreo>();
         if (alineamientoId.IsNull || string.IsNullOrWhiteSpace(nombreGrupo)) return lista;
+        Database db = doc.Database;
 
-        using Transaction tr = doc.Database.TransactionManager.StartTransaction();
-        ObjectId grupoId = LectorDibujo.BuscarGrupo(tr, alineamientoId, nombreGrupo);
-        if (grupoId.IsNull)
+        ObjectId grupoId;
+        using (Transaction tr = db.TransactionManager.StartTransaction())
         {
-            if (!crearSiFalta) return lista;
-            grupoId = C3D.SampleLineGroup.Create(nombreGrupo.Trim(), alineamientoId);
-            Registro.Info("Grupo de líneas de muestreo creado: " + nombreGrupo);
+            grupoId = LectorDibujo.BuscarGrupo(tr, alineamientoId, nombreGrupo);
+            if (grupoId.IsNull && crearSiFalta)
+            {
+                grupoId = C3D.SampleLineGroup.Create(nombreGrupo.Trim(), alineamientoId);
+                Registro.Info("Grupo de líneas de muestreo creado: " + nombreGrupo);
+            }
+            tr.Commit();
         }
+        if (grupoId.IsNull) return lista;
 
-        var grupo = (C3D.SampleLineGroup)tr.GetObject(grupoId, OpenMode.ForRead);
-        foreach (C3D.SectionSource fuente in grupo.GetSectionSources())
-            lista.Add(new FuenteMuestreo(NombreFuente(tr, fuente.SourceId), fuente.SourceType.ToString(), fuente.IsSampled));
-        tr.Commit();
+        using (Transaction tr = db.TransactionManager.StartTransaction())
+        {
+            var grupo = (C3D.SampleLineGroup)tr.GetObject(grupoId, OpenMode.ForWrite);
+
+            // Primero se copian los datos de la colección; los nombres se resuelven después,
+            // para no abrir otros objetos mientras se recorre la colección nativa.
+            var datos = new List<(ObjectId Id, string Tipo, bool Muestreada)>();
+            try
+            {
+                foreach (C3D.SectionSource fuente in grupo.GetSectionSources())
+                    datos.Add((fuente.SourceId, fuente.SourceType.ToString(), fuente.IsSampled));
+            }
+            catch (Autodesk.AutoCAD.Runtime.Exception ex)
+            {
+                throw new ErrorUsuario($"Civil 3D no pudo leer las fuentes del grupo \"{nombreGrupo}\" ({ex.Message}).");
+            }
+
+            foreach (var (id, tipo, muestreada) in datos)
+                lista.Add(new FuenteMuestreo(NombreFuente(tr, id), tipo, muestreada));
+            tr.Commit();
+        }
         return lista;
     }
 

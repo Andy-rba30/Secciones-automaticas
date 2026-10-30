@@ -18,6 +18,12 @@ La primera compilación real en PC1 confirma cada llamada. Estos miembros son lo
 | `LayoutManager.CloneLayout(origen, nuevo, orden)` | `Civil/ServicioPresentaciones.cs` |
 | `Layout.Initialize()` (solo si la hoja exportada no tiene cámara) | `Civil/ServicioExportacion.cs` |
 | `DocumentCollection.ExecuteInCommandContextAsync` | `Infraestructura/Ejecutor.cs` |
+| `PlotSettingsValidator.GetPlotDeviceList`, `GetCanonicalMediaNameList`, `SetCanonicalMediaName`, `SetPlotRotation`, `SetPlotOrigin`, `SetPlotCentered`, `SetCustomPrintScale` | `Civil/ServicioHoja.cs` |
+| `PlotSettings.PlotConfigurationName`, `CanonicalMediaName`, `PlotPaperSize`, `PlotPaperMargins`, `PlotRotation`, `PlotOrigin`; `CustomScale(num, den)` | `Civil/ServicioHoja.cs`, `Civil/ServicioExportacion.cs` |
+| `Extents3d.TransformBy`, `Extents3d.AddExtents`, `Entity.Visible`, `Transaction.GetObject(id, modo, false, true)` | `Civil/ServicioHoja.cs` |
+
+En la versión 1.1.0 los servicios y la paleta se compilaron contra firmas extraídas del `ArbaSecciones.Plugin.dll` que ya
+compiló en PC1 (0 errores); solo los miembros de las tres últimas filas se escribieron a mano.
 
 Si alguno no existe con ese nombre o esa firma, el error de compilación indica archivo y línea.
 
@@ -25,6 +31,9 @@ Si alguno no existe con ese nombre o esa firma, el error de compilación indica 
 
 - [ ] **Cinta**: aparece la pestaña ARBA con el botón *Secciones transversales*; `ARBASEC` abre la paleta.
 - [ ] **Progresivas en tangentes y curvas**: con intervalos 20/10, la vista previa muestra múltiplos de 20 en tangentes, de 10 en curvas y espirales, y los PC/PT/TS/SC/CS/ST. Comparar con las etiquetas del alineamiento.
+- [ ] **Leer fuentes del grupo**: con un grupo existente y con un nombre de grupo nuevo, lista las superficies y obras lineales sin cerrar Civil 3D.
+- [ ] **Hoja al membrete**: crear la plantilla con un membrete A1 en 0,0,0 → la hoja queda A1 horizontal y sus bordes coinciden con el membrete.
+  Repetir con A0 (debe girar el A0 vertical de DWG To PDF), A3 vertical y un membrete movido (se mueve todo el espacio papel y el área útil).
 - [ ] **Líneas de muestreo**: se crean a esas progresivas con los anchos pedidos; volver a crear pregunta si reemplazar o agregar solo las que faltan.
 - [ ] **Escala en papel**: a 1:200, medir en la presentación 10 m del modelo (por ejemplo una línea de rejilla de la vista): deben ser 50 mm.
 - [ ] **Textos**: los textos de rejilla y bandas miden en papel la altura definida en los estilos.
@@ -35,6 +44,6 @@ Si alguno no existe con ese nombre o esa firma, el error de compilación indica 
 - [ ] **Viewport**: no sale en blanco; está en Defpoints, bloqueado, sin rejilla y con la escala de anotación correcta.
 - [ ] **Membrete**: los atributos muestran código, progresivas inicial y final, tramo y número de lámina.
 - [ ] **Repetir**: crear presentaciones otra vez pregunta si reemplazar y no deja presentaciones duplicadas.
-- [ ] **PDF**: A1 sin márgenes, escala 1:1, uno por presentación.
+- [ ] **PDF**: del tamaño de cada presentación (A0, A1…), sin márgenes, escala 1:1, uno por presentación.
 - [ ] **DWG por lámina**: abre en *Presentación 1*, sin el diálogo de recuperación ni el aviso de SHX; el modelo tiene solo las secciones y el cuadro de esa lámina, sin rejilla; el membrete está en 0,0,0.
 - [ ] **Rutas con tilde**: configuración y logs se guardan en `C:\Users\Andy Bayona Antón\…` sin errores.

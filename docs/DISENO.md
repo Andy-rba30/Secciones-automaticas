@@ -6,7 +6,7 @@
 |---|---|---|
 | `ArbaSecciones.Core` (net10.0) | Escala y unidades, progresivas, acomodo y paginación, datos de lámina, configuración JSON, log | No |
 | `ArbaSecciones.Plugin` (net10.0-windows, WPF) | Comandos, cinta ARBA, paleta, servicios que usan la API de AutoCAD y Civil 3D | Sí |
-| `ArbaSecciones.Core.Tests` (consola) | 41 pruebas de la lógica pura, con su propio ejecutor | No |
+| `ArbaSecciones.Core.Tests` (consola) | 51 pruebas de la lógica pura, con su propio ejecutor | No |
 
 La lógica que decide **qué** hacer (cuántas láminas, dónde va cada sección, qué progresivas) está en Core y se prueba sin AutoCAD.
 El plugin solo lee el dibujo, llama a Core y aplica el resultado.
@@ -24,6 +24,7 @@ El plugin solo lee el dibujo, llama a Core y aplica el resultado.
 | `Paginador` + `Empaquetador` | Acomodo por columnas o filas y paginación por km o continua |
 | `SugeridorEscala` | Menor denominador con el que entran las secciones, o con el que cada km cabe en una lámina |
 | `DatosLamina`, `PlantillaTexto` | Valores de los atributos del membrete (`{codigo}`, `{pi}`, `{n:000}`…) |
+| `FormatosPapel` | Reconoce A0…A4 (y alargados ISO 5457) por el tamaño, lee el tamaño del nombre del papel y ordena los papeles candidatos |
 | `AlmacenConfiguracion` | JSON UTF-8 sin BOM, escritura atómica, tolera archivos dañados |
 
 ### Plugin
@@ -36,6 +37,7 @@ El plugin solo lee el dibujo, llama a Core y aplica el resultado.
 | `ServicioVistas` | Crea las vistas que faltan, aplica el estilo y mide la extensión real de cada una |
 | `ServicioAcomodo` | Mueve las vistas y dibuja un marco por lámina con sus datos en XData |
 | `ServicioMembrete` | Presentación plantilla (importar, crear con bloque) y área útil |
+| `ServicioHoja` | Mide el membrete y deja la hoja de la presentación de su tamaño, orientación y posición |
 | `ServicioPresentaciones` | Copia la plantilla por lámina, configura el viewport y llena el membrete |
 | `ServicioExportacion` | PDF por presentación y DWG por lámina |
 | `PanelPrincipal` | Paleta WPF con las cinco pestañas (sin XAML) |
@@ -96,9 +98,23 @@ de vistas y las presentaciones se hacen recién después de confirmar.
 | 5. Cuadrícula | `ViewportTableRecord.GridEnabled = false` y `Viewport.GridOn = false` |
 | 6. Abrir en la presentación | `TileMode = false` al guardar |
 | 7. Hilo principal e Idle | `Ejecutor`: contexto de comando, espera al Idle, rechaza si hay un comando activo |
+| 9. `GetSectionSources()` escribe en el grupo | `ServicioMuestreo.LeerFuentes`: el grupo se abre para escritura (abierto para lectura Civil 3D se cerraba) |
 | 8. Transacciones por etapa y log | Una transacción por etapa; Esc la descarta. Si fallan las presentaciones a mitad se borran las de esa corrida. Log en `%LOCALAPPDATA%` |
 
-## 8. Fuera del alcance de esta versión
+## 8. Hoja ajustada al membrete (1.1.0)
+
+1. Se mide el membrete en el espacio papel: el bloque elegido, si no el bloque con atributos más grande (sin contar atributos),
+   si no el bloque más grande, y si no hay bloques todo lo dibujado.
+2. El tamaño se pasa a mm con la unidad del papel; si no es un formato pero sí lo sería en cm, m o pulgadas, se usa esa unidad.
+3. Se listan los papeles del trazador de la pestaña Exportar (DWG To PDF.pc3 por defecto) y se ordenan: primero el de igual tamaño,
+   luego el más chico donde entra; a igual tamaño, "full bleed" y sin girar.
+4. Se pone el papel y la rotación; la orientación se comprueba con `PlotPaperSize` (girado 90° o 270° se invierten los lados).
+5. Escala 1:1 (o 1 unidad = k mm), trazado de presentación, origen 0,0. Si el membrete no está donde empieza la hoja, se mueve todo
+   el espacio papel menos la cámara (y el área útil guardada), así el membrete queda sobre los bordes del papel o centrado si es menor.
+6. Las láminas se clonan de la plantilla y heredan la hoja; el PDF usa el papel de cada presentación. En el DWG por lámina, al llevar
+   el membrete a 0,0,0 el origen de trazado se corre lo mismo.
+
+## 9. Fuera del alcance de esta versión
 
 - El cuadro de volúmenes por lámina no se genera: se reserva su franja y lo que se dibuje ahí viaja al DWG exportado.
 - No se usó la biblioteca `ARBA-comun`: la pestaña ARBA se crea aquí y, si otra herramienta ARBA ya la creó, solo se agrega el panel.

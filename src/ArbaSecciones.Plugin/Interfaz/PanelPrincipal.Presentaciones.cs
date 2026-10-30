@@ -84,14 +84,16 @@ internal sealed partial class PanelPrincipal
         var f = Ui.Formulario();
         Ui.Fila(f, "Carpeta de salida", _txCarpeta);
         Ui.Fila(f, "Trazador", _txDispositivo);
-        Ui.Fila(f, "Papel", _txPapel);
+        Ui.Fila(f, "Papel (vacío = el de cada lámina)", _txPapel);
         Ui.Fila(f, "Presentación en el DWG", _txNombreDwg);
 
         return Ui.Pila(
             f,
             Ui.Boton("Elegir carpeta…", ElegirCarpeta),
             Ui.Linea(_chkPdf, _chkDwg),
-            Ui.Texto("PDF a escala 1:1. Cada DWG lleva en el modelo solo las secciones y el cuadro de su lámina (sin rejilla) " +
+            Ui.Texto("PDF a escala 1:1 en el papel de cada presentación, que se ajusta al membrete (A0, A1, A2…) en la pestaña Membrete. " +
+                     "Escribe un papel solo si quieres forzar uno para todas. " +
+                     "Cada DWG lleva en el modelo solo las secciones y el cuadro de su lámina (sin rejilla) " +
                      "y una presentación con el membrete en 0,0,0; abre directamente en la presentación.", atenuado: true),
             Ui.Boton("Exportar", ExportarLaminas, principal: true),
             _txExportacion);
@@ -115,7 +117,7 @@ internal sealed partial class PanelPrincipal
         e.Pdf = _chkPdf.IsChecked == true;
         e.Dwg = _chkDwg.IsChecked == true;
         e.Dispositivo = string.IsNullOrWhiteSpace(_txDispositivo.Text) ? "DWG To PDF.pc3" : _txDispositivo.Text.Trim();
-        e.Papel = string.IsNullOrWhiteSpace(_txPapel.Text) ? "ISO_full_bleed_A1_(841.00_x_594.00_MM)" : _txPapel.Text.Trim();
+        e.Papel = string.IsNullOrWhiteSpace(_txPapel.Text) ? string.Empty : _txPapel.Text.Trim();
         e.NombrePresentacionDwg = string.IsNullOrWhiteSpace(_txNombreDwg.Text) ? "Presentación 1" : _txNombreDwg.Text.Trim();
     }
 
