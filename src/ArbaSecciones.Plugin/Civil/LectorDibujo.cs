@@ -12,7 +12,7 @@ internal sealed record ElementoDibujo(string Nombre, ObjectId Id)
     public override string ToString() => Nombre;
 }
 
-/// <summary>Listas que llenan la paleta. Solo lectura.</summary>
+/// <summary>Listas que llenan la paleta. Solo lectura, descartando objetos borrados (IsErased).</summary>
 internal static class LectorDibujo
 {
     public static List<ElementoDibujo> Alineamientos(Document doc)
@@ -22,7 +22,9 @@ internal static class LectorDibujo
         using Transaction tr = doc.Database.TransactionManager.StartTransaction();
         foreach (ObjectId id in civil.GetAlignmentIds())
         {
-            if (tr.GetObject(id, OpenMode.ForRead) is C3D.Alignment a) lista.Add(new ElementoDibujo(a.Name, id));
+            if (id.IsNull || id.IsErased) continue;
+            if (tr.GetObject(id, OpenMode.ForRead) is C3D.Alignment a && !a.IsErased)
+                lista.Add(new ElementoDibujo(a.Name, id));
         }
         tr.Commit();
         return lista.OrderBy(e => e.Nombre, StringComparer.CurrentCultureIgnoreCase).ToList();
@@ -31,12 +33,16 @@ internal static class LectorDibujo
     public static List<ElementoDibujo> GruposMuestreo(Document doc, ObjectId alineamientoId)
     {
         var lista = new List<ElementoDibujo>();
-        if (alineamientoId.IsNull) return lista;
+        if (alineamientoId.IsNull || alineamientoId.IsErased) return lista;
         using Transaction tr = doc.Database.TransactionManager.StartTransaction();
-        var alin = (C3D.Alignment)tr.GetObject(alineamientoId, OpenMode.ForRead);
-        foreach (ObjectId id in alin.GetSampleLineGroupIds())
+        if (tr.GetObject(alineamientoId, OpenMode.ForRead) is C3D.Alignment alin && !alin.IsErased)
         {
-            if (tr.GetObject(id, OpenMode.ForRead) is C3D.SampleLineGroup g) lista.Add(new ElementoDibujo(g.Name, id));
+            foreach (ObjectId id in alin.GetSampleLineGroupIds())
+            {
+                if (id.IsNull || id.IsErased) continue;
+                if (tr.GetObject(id, OpenMode.ForRead) is C3D.SampleLineGroup g && !g.IsErased)
+                    lista.Add(new ElementoDibujo(g.Name, id));
+            }
         }
         tr.Commit();
         return lista;
@@ -44,10 +50,13 @@ internal static class LectorDibujo
 
     public static ObjectId BuscarGrupo(Transaction tr, ObjectId alineamientoId, string nombre)
     {
-        var alin = (C3D.Alignment)tr.GetObject(alineamientoId, OpenMode.ForRead);
+        if (alineamientoId.IsNull || alineamientoId.IsErased) return ObjectId.Null;
+        if (tr.GetObject(alineamientoId, OpenMode.ForRead) is not C3D.Alignment alin || alin.IsErased) return ObjectId.Null;
         foreach (ObjectId id in alin.GetSampleLineGroupIds())
         {
+            if (id.IsNull || id.IsErased) continue;
             if (tr.GetObject(id, OpenMode.ForRead) is C3D.SampleLineGroup g &&
+                !g.IsErased &&
                 string.Equals(g.Name, nombre, StringComparison.CurrentCultureIgnoreCase))
                 return id;
         }
@@ -72,7 +81,8 @@ internal static class LectorDibujo
         using Transaction tr = db.TransactionManager.StartTransaction();
         foreach (object o in coleccion)
         {
-            if (o is ObjectId id && tr.GetObject(id, OpenMode.ForRead) is C3DStyles.StyleBase estilo)
+            if (o is ObjectId id && !id.IsNull && !id.IsErased &&
+                tr.GetObject(id, OpenMode.ForRead) is C3DStyles.StyleBase estilo && !estilo.IsErased)
                 lista.Add(new ElementoDibujo(estilo.Name, id));
         }
         tr.Commit();
@@ -94,8 +104,9 @@ internal static class LectorDibujo
         var dic = (DBDictionary)tr.GetObject(db.LayoutDictionaryId, OpenMode.ForRead);
         foreach (DBDictionaryEntry entrada in dic)
         {
-            var layout = (Layout)tr.GetObject(entrada.Value, OpenMode.ForRead);
-            if (!layout.ModelType) lista.Add((layout.LayoutName, layout.TabOrder));
+            if (entrada.Value.IsNull || entrada.Value.IsErased) continue;
+            if (tr.GetObject(entrada.Value, OpenMode.ForRead) is Layout layout && !layout.IsErased && !layout.ModelType)
+                lista.Add((layout.LayoutName, layout.TabOrder));
         }
         tr.Commit();
         return lista.OrderBy(l => l.Orden).Select(l => l.Nombre).ToList();
@@ -109,8 +120,9 @@ internal static class LectorDibujo
         var tabla = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
         foreach (ObjectId id in tabla)
         {
+            if (id.IsNull || id.IsErased) continue;
             var btr = (BlockTableRecord)tr.GetObject(id, OpenMode.ForRead);
-            if (btr.IsLayout || btr.IsAnonymous || btr.IsFromExternalReference || btr.IsDependent) continue;
+            if (btr.IsErased || btr.IsLayout || btr.IsAnonymous || btr.IsFromExternalReference || btr.IsDependent) continue;
             if (btr.HasAttributeDefinitions) lista.Add(btr.Name);
         }
         tr.Commit();

@@ -56,6 +56,17 @@ Abre Civil 3D 2027: pestaña **ARBA › Secciones** o el comando `ARBASEC`. La p
 
 Cada pestaña ejecuta solo su etapa. Volver a ejecutar no duplica: pregunta si reemplazar líneas y presentaciones, y reacomoda las vistas existentes.
 
+## Cambios en 1.3.0
+
+- **Resiliencia en superficies de corredor y materiales**: purga automática de entradas `CorridorSurface` huérfanas cuando el usuario elimina
+  y recrea la superficie TIN en Civil 3D, auto-regeneración de la superficie al calcular materiales si fue borrada, y protección en
+  `PuntosSeccion` contra `InvalidOperationException: LeftOffset is not supported by current Section`.
+- **Acomodo centrado en el área útil**: `Empaquetador` centra horizontal y verticalmente el bloque de columnas/filas dentro de la zona de
+  secciones del área útil de cada lámina (evitando que las secciones queden pegadas a una esquina). 66 pruebas.
+- **Regeneración limpia de presentaciones y actualización reactiva**: cambio de pestaña en la paleta refresca automáticamente las listas
+  del dibujo descartando objetos borrados (`IsErased`), sincroniza el acomodo antes de regenerar presentaciones y evita bloqueos de
+  regeneración de PaperSpace al clonar y configurar viewports.
+
 ## Cambios en 1.2.0
 
 - Pestaña **Materiales** entre Muestreo y Membrete: visor interactivo de la sección del corredor (zoom, arrastre, clic en una línea

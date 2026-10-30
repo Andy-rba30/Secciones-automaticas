@@ -585,17 +585,20 @@ internal sealed partial class PanelPrincipal
         ElementoDibujo terreno = _cbTerreno.SelectedItem as ElementoDibujo ?? throw new ErrorUsuario("Elige el terreno natural.");
         ElementoDibujo? corredor = CorredorElegido;
         ElementoDibujo? comparacion = _cbComparacion.SelectedItem as ElementoDibujo;
+        ObjectId estiloSuperficieId = (_cbEstiloSuperficie.SelectedItem as ElementoDibujo)?.Id ?? ObjectId.Null;
         bool calcularIgual = _chkCalcularIgual.IsChecked == true;
         bool incluirGrupo = _chkValidarGrupo.IsChecked == true;
-        List<double> grupo = _progresivasGrupoMat;
 
         Ejecutor.Ejecutar("Calcular materiales", doc =>
         {
             ObjectId grupoId = GrupoMuestreo(doc);
+            List<double> grupo = ServicioMateriales.ProgresivasGrupo(doc, grupoId);
+            _progresivasGrupoMat = grupo;
+
             var avisos = new List<string>();
             ObjectId comparacionId;
             string comparacionNombre;
-            if (comparacion != null)
+            if (comparacion != null && !comparacion.Id.IsNull && !comparacion.Id.IsErased)
             {
                 comparacionId = comparacion.Id;
                 comparacionNombre = comparacion.Nombre;
@@ -603,8 +606,16 @@ internal sealed partial class PanelPrincipal
             else
             {
                 if (corredor == null) throw new ErrorUsuario("Elige el corredor (paso 1) o la superficie de comparación.");
-                SuperficieCorredor sup = ServicioCorredor.LeerSuperficie(doc, corredor.Id, m.NombreSubRasante)
-                    ?? throw new ErrorUsuario($"El corredor {corredor.Nombre} no tiene la superficie {m.NombreSubRasante}. Créala en el paso 4.");
+                SuperficieCorredor? sup = ServicioCorredor.LeerSuperficie(doc, corredor.Id, m.NombreSubRasante);
+                if (sup == null && m.CodigosSubRasante.Count > 0)
+                {
+                    // Si el usuario borró la superficie en Civil 3D o aún no la creó pero ya tiene códigos marcados, se recrea automáticamente
+                    avisos.AddRange(ServicioCorredor.CrearSuperficies(doc, corredor.Id, m, estiloSuperficieId));
+                    sup = ServicioCorredor.LeerSuperficie(doc, corredor.Id, m.NombreSubRasante);
+                }
+                if (sup == null)
+                    throw new ErrorUsuario($"El corredor {corredor.Nombre} no tiene la superficie {m.NombreSubRasante}. Créala en el paso 4.");
+
                 comparacionId = sup.SurfaceId;
                 comparacionNombre = sup.Nombre;
                 ComprobarContinuidad(doc, corredor, sup, m, grupo, incluirGrupo, calcularIgual, avisos);
@@ -627,6 +638,7 @@ internal sealed partial class PanelPrincipal
             _filasVolumen = CalculadorVolumenes.AreasMedias(areas, m.FactorEsponjamiento, m.FactorCompactacion);
             int tablas = m.TablaEnVistas ? ServicioMateriales.TablasEnVistas(doc, grupoId, lista, avisos) : 0;
 
+            RefrescarMateriales(doc);
             MostrarVolumenes(avisos);
             Mensaje($"Lista \"{m.NombreLista}\" creada; {_filasVolumen.Count} secciones calculadas" + (tablas > 0 ? $", {tablas} tablas en las vistas." : "."));
             if (avisos.Count > 0) Registro.Aviso("Materiales: " + string.Join(" | ", avisos));

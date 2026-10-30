@@ -20,7 +20,7 @@ internal static class ServicioVistas
 {
     public static Medicion PrepararYMedir(Document doc, ConfiguracionArba cfg, ObjectId grupoId, Point3d zonaEspera)
     {
-        if (grupoId.IsNull) throw new ErrorUsuario("Elige el alineamiento y el grupo de líneas de muestreo en la pestaña Muestreo.");
+        if (grupoId.IsNull || grupoId.IsErased) throw new ErrorUsuario("Elige el alineamiento y el grupo de líneas de muestreo en la pestaña Muestreo.");
         Database db = doc.Database;
         ConversorEscala conversor = ServicioEscala.Conversor(db, cfg);
 
@@ -37,7 +37,7 @@ internal static class ServicioVistas
         // 2) Exageración vertical del estilo frente a la pedida.
         if (!estiloId.IsNull) estiloId = RevisarExageracion(db, cfg, estiloId, conversor.Escala.Exageracion);
 
-        // 3) Vistas que faltan (en una zona de espera) y estilo en todas.
+        // 3) Vistas que faltan (en una zona de espera), limpieza de duplicadas y estilo en todas.
         int creadas = AsegurarVistas(db, grupoId, estiloId, bandasId, zonaEspera, PasoEspera(cfg));
 
         // 4) Regenerar para que las extensiones respondan a la escala de anotación vigente.
@@ -102,7 +102,10 @@ internal static class ServicioVistas
         var grupo = (C3D.SampleLineGroup)tr.GetObject(grupoId, OpenMode.ForRead);
         var lineas = new List<ObjectId>();
         foreach (ObjectId id in grupo.GetSampleLineIds())
-            if (!id.IsErased) lineas.Add(id);
+        {
+            if (id.IsNull || id.IsErased) continue;
+            if (tr.GetObject(id, OpenMode.ForRead) is C3D.SampleLine sl && !sl.IsErased) lineas.Add(id);
+        }
         if (lineas.Count == 0) throw new ErrorUsuario($"El grupo \"{grupo.Name}\" no tiene líneas de muestreo. Créalas en la pestaña Muestreo.");
 
         int creadas = 0;
@@ -113,7 +116,7 @@ internal static class ServicioVistas
             {
                 progreso.Avanzar();
                 var linea = (C3D.SampleLine)tr.GetObject(lineaId, OpenMode.ForRead);
-                List<ObjectId> vistas = VistasDe(linea);
+                List<ObjectId> vistas = VistasDe(tr, linea);
 
                 if (vistas.Count == 0)
                 {
@@ -124,14 +127,25 @@ internal static class ServicioVistas
                     if (!bandasId.IsNull) vista.Bands.ImportBandSetStyle(bandasId);
                     creadas++;
                 }
-                else if (!estiloId.IsNull)
+                else
                 {
-                    foreach (ObjectId vistaId in vistas)
+                    // Si hay vistas duplicadas para la misma línea de muestreo, eliminar las sobrantes para evitar superposición
+                    for (int k = 1; k < vistas.Count; k++)
                     {
-                        var vista = (C3D.SectionView)tr.GetObject(vistaId, OpenMode.ForRead);
-                        if (vista.StyleId == estiloId) continue;
+                        if (tr.GetObject(vistas[k], OpenMode.ForWrite) is C3D.SectionView dup && !dup.IsErased)
+                            dup.Erase(true);
+                    }
+
+                    var vista = (C3D.SectionView)tr.GetObject(vistas[0], OpenMode.ForRead);
+                    if (!estiloId.IsNull && vista.StyleId != estiloId)
+                    {
                         vista.UpgradeOpen();
                         vista.StyleId = estiloId;
+                    }
+                    if (!bandasId.IsNull)
+                    {
+                        if (!vista.IsWriteEnabled) vista.UpgradeOpen();
+                        vista.Bands.ImportBandSetStyle(bandasId);
                     }
                 }
                 indice++;
@@ -148,12 +162,10 @@ internal static class ServicioVistas
         var grupo = (C3D.SampleLineGroup)tr.GetObject(grupoId, OpenMode.ForRead);
         foreach (ObjectId lineaId in grupo.GetSampleLineIds())
         {
-            if (lineaId.IsErased) continue;
-            var linea = (C3D.SampleLine)tr.GetObject(lineaId, OpenMode.ForRead);
-            List<ObjectId> vistas = VistasDe(linea);
+            if (lineaId.IsNull || lineaId.IsErased) continue;
+            if (tr.GetObject(lineaId, OpenMode.ForRead) is not C3D.SampleLine linea || linea.IsErased) continue;
+            List<ObjectId> vistas = VistasDe(tr, linea);
             if (vistas.Count == 0) continue;
-            if (vistas.Count > 1)
-                Registro.Aviso($"La línea {linea.Name} tiene {vistas.Count} vistas; se acomoda solo la primera.");
 
             var vista = (C3D.SectionView)tr.GetObject(vistas[0], OpenMode.ForRead);
             Extents3d ext;
@@ -191,11 +203,15 @@ internal static class ServicioVistas
         return resultado.OrderBy(v => v.Medida.Progresiva).ToList();
     }
 
-    private static List<ObjectId> VistasDe(C3D.SampleLine linea)
+    private static List<ObjectId> VistasDe(Transaction tr, C3D.SampleLine linea)
     {
         var lista = new List<ObjectId>();
         foreach (ObjectId id in linea.GetSectionViewIds())
-            if (!id.IsNull && !id.IsErased) lista.Add(id);
+        {
+            if (id.IsNull || id.IsErased) continue;
+            if (tr.GetObject(id, OpenMode.ForRead) is C3D.SectionView sv && !sv.IsErased)
+                lista.Add(id);
+        }
         return lista;
     }
 }

@@ -26,13 +26,13 @@ internal static class ServicioMateriales
     public static List<double> ProgresivasGrupo(Document doc, ObjectId grupoId)
     {
         var lista = new List<double>();
-        if (grupoId.IsNull) return lista;
+        if (grupoId.IsNull || grupoId.IsErased) return lista;
         using Transaction tr = doc.Database.TransactionManager.StartTransaction();
         var grupo = (C3D.SampleLineGroup)tr.GetObject(grupoId, OpenMode.ForRead);
         foreach (ObjectId id in grupo.GetSampleLineIds())
         {
-            if (id.IsErased) continue;
-            if (tr.GetObject(id, OpenMode.ForRead) is C3D.SampleLine sl) lista.Add(sl.Station);
+            if (id.IsNull || id.IsErased) continue;
+            if (tr.GetObject(id, OpenMode.ForRead) is C3D.SampleLine sl && !sl.IsErased) lista.Add(sl.Station);
         }
         tr.Commit();
         return lista.OrderBy(p => p).ToList();
@@ -40,18 +40,26 @@ internal static class ServicioMateriales
 
     /// <summary>
     /// Deja muestreadas en el grupo las superficies indicadas (y el corredor, si hay materiales de estructura).
-    /// Devuelve, por cada id pedido, el id de la fuente con que el grupo la identifica.
+    /// Descarta fuentes huérfanas o borradas y devuelve, por cada id pedido, el id de la fuente con que el grupo la identifica.
     /// </summary>
     public static Dictionary<ObjectId, ObjectId> AsegurarMuestreo(Document doc, ObjectId grupoId, IEnumerable<ObjectId> ids, IReadOnlyDictionary<ObjectId, string> nombres)
     {
-        var buscados = ids.Where(i => !i.IsNull).Distinct().ToList();
+        var buscados = ids.Where(i => !i.IsNull && !i.IsErased).Distinct().ToList();
         var resultado = new Dictionary<ObjectId, ObjectId>();
         using (Transaction tr = doc.Database.TransactionManager.StartTransaction())
         {
             // GetSectionSources() escribe en el grupo: se abre para escritura (lección 9).
             var grupo = (C3D.SampleLineGroup)tr.GetObject(grupoId, OpenMode.ForWrite);
             var fuentes = new List<C3D.SectionSource>();
-            foreach (C3D.SectionSource f in grupo.GetSectionSources()) fuentes.Add(f);
+            foreach (C3D.SectionSource f in grupo.GetSectionSources())
+            {
+                if (f.SourceId.IsNull || f.SourceId.IsErased)
+                {
+                    try { if (f.IsSampled) f.IsSampled = false; } catch { }
+                    continue;
+                }
+                fuentes.Add(f);
+            }
 
             foreach (ObjectId id in buscados)
             {
@@ -156,7 +164,7 @@ internal static class ServicioMateriales
         var grupo = (C3D.SampleLineGroup)tr.GetObject(grupoId, OpenMode.ForRead);
         var lineas = new List<C3D.SampleLine>();
         foreach (ObjectId id in grupo.GetSampleLineIds())
-            if (!id.IsErased && tr.GetObject(id, OpenMode.ForRead) is C3D.SampleLine sl) lineas.Add(sl);
+            if (!id.IsNull && !id.IsErased && tr.GetObject(id, OpenMode.ForRead) is C3D.SampleLine sl && !sl.IsErased) lineas.Add(sl);
 
         using (var progreso = new Progreso("Calculando áreas de corte y relleno…", lineas.Count))
         {
@@ -177,7 +185,11 @@ internal static class ServicioMateriales
         return areas;
     }
 
-    /// <summary>Puntos de la sección de una fuente en la línea de muestreo, sin los que quedan fuera de sus desplazamientos.</summary>
+    /// <summary>
+    /// Puntos de la sección de una fuente en la línea de muestreo, sin los que quedan fuera de sus desplazamientos.
+    /// Protege la lectura de LeftOffset/RightOffset contra NotSupportedException/InvalidOperationException
+    /// en secciones de corredor o secciones que no implementan límites directos en la API de Civil 3D.
+    /// </summary>
     private static List<PuntoSeccion>? PuntosSeccion(Transaction tr, C3D.SampleLine sl, ObjectId fuente)
     {
         ObjectId id;
@@ -185,19 +197,38 @@ internal static class ServicioMateriales
         {
             id = sl.GetSectionId(fuente);
         }
-        catch (System.Exception ex) when (ex is ArgumentException or InvalidOperationException or Autodesk.AutoCAD.Runtime.Exception)
+        catch (System.Exception ex) when (ex is ArgumentException or InvalidOperationException or NotSupportedException or Autodesk.AutoCAD.Runtime.Exception)
         {
             return null;
         }
-        if (id.IsNull || id.IsErased || tr.GetObject(id, OpenMode.ForRead) is not C3D.Section seccion) return null;
+        if (id.IsNull || id.IsErased || tr.GetObject(id, OpenMode.ForRead) is not C3D.Section seccion || seccion.IsErased) return null;
 
-        double izquierda = seccion.LeftOffset, derecha = seccion.RightOffset;
-        var puntos = new List<PuntoSeccion>();
-        foreach (C3D.SectionPoint p in seccion.SectionPoints)
+        double izquierda = double.NegativeInfinity, derecha = double.PositiveInfinity;
+        try
         {
-            Point3d l = p.Location; // X = desplazamiento, Y = elevación
-            if (l.X < izquierda - 1e-6 || l.X > derecha + 1e-6) continue;
-            puntos.Add(new PuntoSeccion(l.X, l.Y));
+            izquierda = seccion.LeftOffset;
+            derecha = seccion.RightOffset;
+        }
+        catch (System.Exception ex) when (ex is InvalidOperationException or NotSupportedException or Autodesk.AutoCAD.Runtime.Exception)
+        {
+            // Secciones de corredor o ciertas secciones de superficie lanzan "LeftOffset is not supported by current Section":
+            // se leen todos los puntos directamente de SectionPoints sin filtrar por LeftOffset/RightOffset.
+        }
+
+        var puntos = new List<PuntoSeccion>();
+        try
+        {
+            foreach (C3D.SectionPoint p in seccion.SectionPoints)
+            {
+                Point3d l = p.Location; // X = desplazamiento, Y = elevación
+                if (double.IsNaN(l.X) || double.IsNaN(l.Y) || double.IsInfinity(l.X) || double.IsInfinity(l.Y)) continue;
+                if (l.X < izquierda - 1e-6 || l.X > derecha + 1e-6) continue;
+                puntos.Add(new PuntoSeccion(l.X, l.Y));
+            }
+        }
+        catch (System.Exception ex) when (ex is InvalidOperationException or NotSupportedException or Autodesk.AutoCAD.Runtime.Exception)
+        {
+            return null;
         }
         return puntos.Count >= 2 ? puntos.OrderBy(p => p.Desplazamiento).ToList() : null;
     }
@@ -210,10 +241,10 @@ internal static class ServicioMateriales
         var grupo = (C3D.SampleLineGroup)tr.GetObject(grupoId, OpenMode.ForRead);
         foreach (ObjectId lineaId in grupo.GetSampleLineIds())
         {
-            if (lineaId.IsErased || tr.GetObject(lineaId, OpenMode.ForRead) is not C3D.SampleLine sl) continue;
+            if (lineaId.IsNull || lineaId.IsErased || tr.GetObject(lineaId, OpenMode.ForRead) is not C3D.SampleLine sl || sl.IsErased) continue;
             foreach (ObjectId vistaId in sl.GetSectionViewIds())
             {
-                if (vistaId.IsErased || tr.GetObject(vistaId, OpenMode.ForWrite) is not C3D.SectionView vista) continue;
+                if (vistaId.IsNull || vistaId.IsErased || tr.GetObject(vistaId, OpenMode.ForWrite) is not C3D.SectionView vista || vista.IsErased) continue;
                 try
                 {
                     vista.VolumeTables.CreateVolumeTable(C3D.VolumeTableType.Material, lista);

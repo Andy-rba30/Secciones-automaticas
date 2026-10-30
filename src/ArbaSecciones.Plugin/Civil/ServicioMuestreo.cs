@@ -43,7 +43,7 @@ internal static class ServicioMuestreo
 
     public static ResultadoProgresivas Calcular(Document doc, ObjectId alineamientoId, OpcionesMuestreo opciones)
     {
-        if (alineamientoId.IsNull) throw new ErrorUsuario("Elige un alineamiento.");
+        if (alineamientoId.IsNull || alineamientoId.IsErased) throw new ErrorUsuario("Elige un alineamiento.");
         List<TramoAlineamiento> tramos;
         using (Transaction tr = doc.Database.TransactionManager.StartTransaction())
         {
@@ -70,7 +70,7 @@ internal static class ServicioMuestreo
     public static List<FuenteMuestreo> LeerFuentes(Document doc, ObjectId alineamientoId, string nombreGrupo, bool crearSiFalta)
     {
         var lista = new List<FuenteMuestreo>();
-        if (alineamientoId.IsNull || string.IsNullOrWhiteSpace(nombreGrupo)) return lista;
+        if (alineamientoId.IsNull || alineamientoId.IsErased || string.IsNullOrWhiteSpace(nombreGrupo)) return lista;
         Database db = doc.Database;
 
         ObjectId grupoId;
@@ -96,7 +96,10 @@ internal static class ServicioMuestreo
             try
             {
                 foreach (C3D.SectionSource fuente in grupo.GetSectionSources())
+                {
+                    if (fuente.SourceId.IsNull || fuente.SourceId.IsErased) continue;
                     datos.Add((fuente.SourceId, fuente.SourceType.ToString(), fuente.IsSampled));
+                }
             }
             catch (Autodesk.AutoCAD.Runtime.Exception ex)
             {
@@ -104,7 +107,10 @@ internal static class ServicioMuestreo
             }
 
             foreach (var (id, tipo, muestreada) in datos)
+            {
+                if (tr.GetObject(id, OpenMode.ForRead, openErased: true) is DBObject obj && obj.IsErased) continue;
                 lista.Add(new FuenteMuestreo(NombreFuente(tr, id), tipo, muestreada));
+            }
             tr.Commit();
         }
         return lista;
@@ -116,7 +122,7 @@ internal static class ServicioMuestreo
     /// </summary>
     public static ResultadoMuestreo CrearLineas(Document doc, ObjectId alineamientoId, OpcionesMuestreo op, ResultadoProgresivas progresivas)
     {
-        if (alineamientoId.IsNull) throw new ErrorUsuario("Elige un alineamiento.");
+        if (alineamientoId.IsNull || alineamientoId.IsErased) throw new ErrorUsuario("Elige un alineamiento.");
         if (string.IsNullOrWhiteSpace(op.NombreGrupo)) throw new ErrorUsuario("Escribe el nombre del grupo de líneas de muestreo.");
         if (progresivas.Progresivas.Count == 0) throw new ErrorUsuario("No hay progresivas para crear.");
 
@@ -133,15 +139,18 @@ internal static class ServicioMuestreo
         {
             var marcadas = new HashSet<string>(op.Fuentes, StringComparer.CurrentCultureIgnoreCase);
             foreach (C3D.SectionSource fuente in grupo.GetSectionSources())
+            {
+                if (fuente.SourceId.IsNull || fuente.SourceId.IsErased) continue;
                 fuente.IsSampled = marcadas.Contains(NombreFuente(tr, fuente.SourceId));
+            }
         }
 
         // Líneas existentes: reemplazar o agregar solo las que faltan.
         var existentes = new List<(ObjectId Id, double Progresiva)>();
         foreach (ObjectId id in grupo.GetSampleLineIds())
         {
-            if (id.IsErased) continue;
-            if (tr.GetObject(id, OpenMode.ForRead) is C3D.SampleLine sl) existentes.Add((id, sl.Station));
+            if (id.IsNull || id.IsErased) continue;
+            if (tr.GetObject(id, OpenMode.ForRead) is C3D.SampleLine sl && !sl.IsErased) existentes.Add((id, sl.Station));
         }
 
         int borradas = 0;
@@ -168,8 +177,8 @@ internal static class ServicioMuestreo
         foreach (ObjectId id in grupo.GetSampleLineIds())
         {
             // Las líneas recién borradas en esta misma transacción no se pueden abrir (eWasErased).
-            if (id.IsErased) continue;
-            if (tr.GetObject(id, OpenMode.ForRead) is C3D.SampleLine sl) nombres.Add(sl.Name);
+            if (id.IsNull || id.IsErased) continue;
+            if (tr.GetObject(id, OpenMode.ForRead) is C3D.SampleLine sl && !sl.IsErased) nombres.Add(sl.Name);
         }
 
         int creadas = 0;
@@ -211,7 +220,7 @@ internal static class ServicioMuestreo
     {
         try
         {
-            if (!id.IsNull && !id.IsErased && tr.GetObject(id, OpenMode.ForRead) is C3D.Entity e) return e.Name;
+            if (!id.IsNull && !id.IsErased && tr.GetObject(id, OpenMode.ForRead) is C3D.Entity e && !e.IsErased) return e.Name;
         }
         catch (Autodesk.AutoCAD.Runtime.Exception)
         {

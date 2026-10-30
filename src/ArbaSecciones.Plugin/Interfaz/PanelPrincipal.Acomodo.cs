@@ -167,10 +167,22 @@ internal sealed partial class PanelPrincipal
             _cargando = false;
         }
 
-        if (Estado.UltimaMedicion != null && Estado.UltimaMedicion.Documento != doc.Name)
+        if (Estado.UltimaMedicion != null)
         {
-            Estado.UltimaMedicion = null;
-            MostrarResultado(null, estimado: false);
+            bool invalida = Estado.UltimaMedicion.Documento != doc.Name ||
+                            Estado.UltimaMedicion.GrupoId.IsNull ||
+                            Estado.UltimaMedicion.GrupoId.IsErased;
+            if (!invalida)
+            {
+                int actuales = ServicioMateriales.ProgresivasGrupo(doc, Estado.UltimaMedicion.GrupoId).Count;
+                if (actuales != Estado.UltimaMedicion.Vistas.Count)
+                    invalida = true;
+            }
+            if (invalida)
+            {
+                Estado.UltimaMedicion = null;
+                MostrarResultado(null, estimado: false);
+            }
         }
         ActualizarInfoArea();
     }
@@ -298,6 +310,60 @@ internal sealed partial class PanelPrincipal
             ServicioAcomodo.Aplicar(doc, r, medicion, puntoBase, Cfg.Acomodo.SeparacionLaminas);
             Mensaje($"Vistas acomodadas: {r.TotalSecciones} en {r.Laminas.Count} láminas a {r.Conversor.Escala}.");
         });
+    }
+
+    /// <summary>
+    /// Re-sincroniza automáticamente las vistas y marcos de lámina en el Espacio Modelo antes de generar o regenerar
+    /// las presentaciones si el usuario agregó o eliminó líneas de muestreo o cambió parámetros.
+    /// </summary>
+    private void SincronizarAcomodoParaPresentaciones(Document doc)
+    {
+        if (!Cfg.Membrete.AreaDefinida || Cfg.ParametrosAcomodo().Validar().Count > 0) return;
+
+        ObjectId grupoId = ObjectId.Null;
+        try
+        {
+            grupoId = BuscarGrupoElegido(doc);
+        }
+        catch (ErrorUsuario)
+        {
+            return;
+        }
+        if (grupoId.IsNull || grupoId.IsErased) return;
+
+        Point3d? puntoBase = null;
+        if (Cfg.Acomodo.BaseX.HasValue && Cfg.Acomodo.BaseY.HasValue)
+        {
+            puntoBase = new Point3d(Cfg.Acomodo.BaseX.Value, Cfg.Acomodo.BaseY.Value, 0);
+        }
+        else
+        {
+            List<MarcoLamina> marcosPrevios = ServicioAcomodo.LeerMarcos(doc.Database);
+            if (marcosPrevios.Count > 0)
+            {
+                Extents3d ext0 = marcosPrevios[0].Extension;
+                puntoBase = new Point3d(ext0.MinPoint.X, ext0.MinPoint.Y, 0);
+                Cfg.Acomodo.BaseX = puntoBase.Value.X;
+                Cfg.Acomodo.BaseY = puntoBase.Value.Y;
+                Estado.Guardar();
+            }
+        }
+        if (!puntoBase.HasValue) return;
+
+        ConversorEscala c = ServicioEscala.Conversor(doc.Database, Cfg);
+        double subir = c.PapelAModelo(Cfg.Membrete.AltoUtil) + c.PapelAModelo(Math.Max(Cfg.Acomodo.SeparacionLaminas, 10)) * 2;
+        var zonaEspera = new Point3d(puntoBase.Value.X, puntoBase.Value.Y + subir, 0);
+
+        Medicion medicion = ServicioVistas.PrepararYMedir(doc, Cfg, grupoId, zonaEspera);
+        Estado.UltimaMedicion = medicion;
+        CargarAcomodo();
+
+        ResultadoAcomodo r = Paginador.Paginar(medicion.Medidas, medicion.Conversor, Cfg.ParametrosAcomodo());
+        MostrarResultado(r, estimado: false);
+        if (r.Valido)
+        {
+            ServicioAcomodo.Aplicar(doc, r, medicion, puntoBase.Value, Cfg.Acomodo.SeparacionLaminas);
+        }
     }
 
     private Point3d PuntoBase(Document doc)

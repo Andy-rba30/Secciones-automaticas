@@ -5,7 +5,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <Deterministic>true</Deterministic>
-    <Version>1.2.0</Version>
+    <Version>1.3.0</Version>
     <Company>ARBA</Company>
     <Product>ArbaSecciones</Product>
     <Copyright>ARBA</Copyright>

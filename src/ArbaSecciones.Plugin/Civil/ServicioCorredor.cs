@@ -36,7 +36,11 @@ internal static class ServicioCorredor
         CivilDocument civil = CivilDocument.GetCivilDocument(doc.Database);
         using Transaction tr = doc.Database.TransactionManager.StartTransaction();
         foreach (ObjectId id in civil.CorridorCollection)
-            if (tr.GetObject(id, OpenMode.ForRead) is C3D.Corridor c) lista.Add(new ElementoDibujo(c.Name, id));
+        {
+            if (id.IsNull || id.IsErased) continue;
+            if (tr.GetObject(id, OpenMode.ForRead) is C3D.Corridor c && !c.IsErased)
+                lista.Add(new ElementoDibujo(c.Name, id));
+        }
         tr.Commit();
         return lista.OrderBy(e => e.Nombre, StringComparer.CurrentCultureIgnoreCase).ToList();
     }
@@ -44,10 +48,12 @@ internal static class ServicioCorredor
     public static List<string> LineasBase(Document doc, ObjectId corredorId)
     {
         var lista = new List<string>();
-        if (corredorId.IsNull) return lista;
+        if (corredorId.IsNull || corredorId.IsErased) return lista;
         using Transaction tr = doc.Database.TransactionManager.StartTransaction();
-        var corredor = (C3D.Corridor)tr.GetObject(corredorId, OpenMode.ForRead);
-        foreach (C3D.Baseline b in corredor.Baselines) lista.Add(b.Name);
+        if (tr.GetObject(corredorId, OpenMode.ForRead) is C3D.Corridor corredor && !corredor.IsErased)
+        {
+            foreach (C3D.Baseline b in corredor.Baselines) lista.Add(b.Name);
+        }
         tr.Commit();
         return lista;
     }
@@ -59,7 +65,11 @@ internal static class ServicioCorredor
         CivilDocument civil = CivilDocument.GetCivilDocument(doc.Database);
         using Transaction tr = doc.Database.TransactionManager.StartTransaction();
         foreach (ObjectId id in civil.GetSurfaceIds())
-            if (tr.GetObject(id, OpenMode.ForRead) is C3D.Surface s) lista.Add(new ElementoDibujo(s.Name, id));
+        {
+            if (id.IsNull || id.IsErased) continue;
+            if (tr.GetObject(id, OpenMode.ForRead) is C3D.Surface s && !s.IsErased)
+                lista.Add(new ElementoDibujo(s.Name, id));
+        }
         tr.Commit();
         return lista.OrderBy(e => e.Nombre, StringComparer.CurrentCultureIgnoreCase).ToList();
     }
@@ -70,7 +80,11 @@ internal static class ServicioCorredor
         var lista = new List<ElementoDibujo>();
         using Transaction tr = doc.Database.TransactionManager.StartTransaction();
         foreach (ObjectId id in civil.Styles.SurfaceStyles)
-            if (tr.GetObject(id, OpenMode.ForRead) is Autodesk.Civil.DatabaseServices.Styles.StyleBase e) lista.Add(new ElementoDibujo(e.Name, id));
+        {
+            if (id.IsNull || id.IsErased) continue;
+            if (tr.GetObject(id, OpenMode.ForRead) is Autodesk.Civil.DatabaseServices.Styles.StyleBase e && !e.IsErased)
+                lista.Add(new ElementoDibujo(e.Name, id));
+        }
         tr.Commit();
         return lista.OrderBy(e => e.Nombre, StringComparer.CurrentCultureIgnoreCase).ToList();
     }
@@ -89,6 +103,7 @@ internal static class ServicioCorredor
     public static List<RegionCorredor> Regiones(Document doc, ObjectId corredorId, string? lineaBase)
     {
         var lista = new List<RegionCorredor>();
+        if (corredorId.IsNull || corredorId.IsErased) return lista;
         using Transaction tr = doc.Database.TransactionManager.StartTransaction();
         var corredor = (C3D.Corridor)tr.GetObject(corredorId, OpenMode.ForRead);
         C3D.Baseline b = BuscarLineaBase(corredor, lineaBase);
@@ -101,6 +116,7 @@ internal static class ServicioCorredor
     public static List<double> ProgresivasAplicadas(Document doc, ObjectId corredorId, string? lineaBase)
     {
         var lista = new List<double>();
+        if (corredorId.IsNull || corredorId.IsErased) return lista;
         using Transaction tr = doc.Database.TransactionManager.StartTransaction();
         var corredor = (C3D.Corridor)tr.GetObject(corredorId, OpenMode.ForRead);
         C3D.Baseline b = BuscarLineaBase(corredor, lineaBase);
@@ -116,7 +132,7 @@ internal static class ServicioCorredor
     /// </summary>
     public static LecturaSeccion LeerSeccion(Document doc, ObjectId corredorId, string? lineaBase, double progresiva)
     {
-        if (corredorId.IsNull) throw new ErrorUsuario("Elige un corredor.");
+        if (corredorId.IsNull || corredorId.IsErased) throw new ErrorUsuario("Elige un corredor válido.");
         using Transaction tr = doc.Database.TransactionManager.StartTransaction();
         var corredor = (C3D.Corridor)tr.GetObject(corredorId, OpenMode.ForRead);
         C3D.Baseline b = BuscarLineaBase(corredor, lineaBase);
@@ -168,6 +184,7 @@ internal static class ServicioCorredor
 
     public static List<string> CodigosForma(Document doc, ObjectId corredorId)
     {
+        if (corredorId.IsNull || corredorId.IsErased) return new List<string>();
         using Transaction tr = doc.Database.TransactionManager.StartTransaction();
         var corredor = (C3D.Corridor)tr.GetObject(corredorId, OpenMode.ForRead);
         var lista = corredor.GetShapeCodes().Where(c => !string.IsNullOrWhiteSpace(c)).Distinct(StringComparer.OrdinalIgnoreCase)
@@ -184,7 +201,7 @@ internal static class ServicioCorredor
         ObjectId terrenoId, int muestras = 60)
     {
         var resultado = new List<(double, double)>();
-        if (terrenoId.IsNull) return resultado;
+        if (terrenoId.IsNull || terrenoId.IsErased || corredorId.IsNull || corredorId.IsErased) return resultado;
         List<double> todas = ProgresivasAplicadas(doc, corredorId, lineaBase);
         if (todas.Count == 0) return resultado;
         int paso = Math.Max(1, todas.Count / Math.Max(1, muestras));
@@ -220,9 +237,12 @@ internal static class ServicioCorredor
         return resultado;
     }
 
-    /// <summary>Códigos y voladizo reales de una superficie del corredor. Null si no existe.</summary>
+    /// <summary>
+    /// Códigos y voladizo reales de una superficie del corredor. Null si no existe o si su TinSurface subyacente fue borrada.
+    /// </summary>
     public static SuperficieCorredor? LeerSuperficie(Document doc, ObjectId corredorId, string nombre)
     {
+        if (corredorId.IsNull || corredorId.IsErased) return null;
         using Transaction tr = doc.Database.TransactionManager.StartTransaction();
         var corredor = (C3D.Corridor)tr.GetObject(corredorId, OpenMode.ForRead);
         C3D.CorridorSurfaceCollection superficies = corredor.CorridorSurfaces;
@@ -231,20 +251,55 @@ internal static class ServicioCorredor
         if (real != null)
         {
             C3D.CorridorSurface cs = superficies[real];
-            r = new SuperficieCorredor(cs.Name, cs.SurfaceId, cs.LinkCodes().ToList(), DesdeCivil(cs.OverhangCorrection));
+            if (SuperficieTinValida(tr, cs.SurfaceId))
+            {
+                r = new SuperficieCorredor(cs.Name, cs.SurfaceId, cs.LinkCodes().ToList(), DesdeCivil(cs.OverhangCorrection));
+            }
         }
         tr.Commit();
         return r;
     }
 
+    private static bool SuperficieTinValida(Transaction tr, ObjectId surfaceId)
+    {
+        if (surfaceId.IsNull || surfaceId.IsErased) return false;
+        try
+        {
+            DBObject? obj = tr.GetObject(surfaceId, OpenMode.ForRead, openErased: true);
+            return obj is C3D.Surface s && !s.IsErased;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void PurgarSuperficieHuerfanaPorNombre(Database db, Transaction tr, string nombreSuperficie, HashSet<ObjectId> idsVinculadosAlCorredor)
+    {
+        CivilDocument civilDoc = CivilDocument.GetCivilDocument(db);
+        foreach (ObjectId surfId in civilDoc.GetSurfaceIds())
+        {
+            if (surfId.IsNull || surfId.IsErased || idsVinculadosAlCorredor.Contains(surfId)) continue;
+            if (tr.GetObject(surfId, OpenMode.ForRead) is C3D.Surface surf &&
+                !surf.IsErased &&
+                string.Equals(surf.Name, nombreSuperficie, StringComparison.OrdinalIgnoreCase))
+            {
+                surf.UpgradeOpen();
+                surf.Erase(true);
+                Registro.Info($"Superficie huérfana '{nombreSuperficie}' eliminada para recrear limpia.");
+                break;
+            }
+        }
+    }
+
     /// <summary>
-    /// Crea o reemplaza la configuración de las superficies del corredor: códigos como líneas de rotura, corrección de
-    /// voladizo y contorno "Extensión del corredor como contorno exterior". Al final reconstruye el corredor.
-    /// Todo en una transacción: si algo falla, el corredor queda como estaba.
+    /// Crea o reemplaza de forma resiliente la configuración de las superficies del corredor: limpia entradas huérfanas
+    /// cuya TinSurface haya sido borrada en Civil 3D, sincroniza códigos como líneas de rotura, corrección de voladizo
+    /// y contorno exterior, y reconstruye el corredor.
     /// </summary>
     public static List<string> CrearSuperficies(Document doc, ObjectId corredorId, ConfigMateriales m, ObjectId estiloId)
     {
-        if (corredorId.IsNull) throw new ErrorUsuario("Elige un corredor.");
+        if (corredorId.IsNull || corredorId.IsErased) throw new ErrorUsuario("Elige un corredor.");
         if (m.CodigosSubRasante.Count == 0) throw new ErrorUsuario("Marca los códigos de la SubRasante (o usa «Detectar automáticamente»).");
 
         var definiciones = new List<(string Nombre, List<string> Codigos, CorreccionVoladizo Voladizo)>
@@ -263,7 +318,33 @@ internal static class ServicioCorredor
         using Transaction tr = doc.Database.TransactionManager.StartTransaction();
         var corredor = (C3D.Corridor)tr.GetObject(corredorId, OpenMode.ForWrite);
         C3D.CorridorSurfaceCollection superficies = corredor.CorridorSurfaces;
+
+        // 1. Limpiar cualquier definición de CorridorSurface cuya TinSurface haya sido borrada en el dibujo (referencia zombi)
+        foreach (string nombreExistente in superficies.SurfaceNames().ToList())
+        {
+            C3D.CorridorSurface csExistente = superficies[nombreExistente];
+            if (!SuperficieTinValida(tr, csExistente.SurfaceId))
+            {
+                try
+                {
+                    superficies.Remove(nombreExistente);
+                    Registro.Info($"Referencia huérfana de superficie de corredor '{nombreExistente}' purgada.");
+                }
+                catch (System.Exception ex)
+                {
+                    Registro.Aviso($"No se pudo quitar referencia previa '{nombreExistente}': {ex.Message}");
+                }
+            }
+        }
+
         var existentes = new HashSet<string>(superficies.SurfaceNames(), StringComparer.CurrentCultureIgnoreCase);
+        var idsVinculados = new HashSet<ObjectId>();
+        foreach (string n in superficies.SurfaceNames())
+        {
+            ObjectId sid = superficies[n].SurfaceId;
+            if (!sid.IsNull && !sid.IsErased) idsVinculados.Add(sid);
+        }
+
         var codigosCorredor = new HashSet<string>(corredor.GetLinkCodes(), StringComparer.OrdinalIgnoreCase);
 
         var repetidas = definiciones.Where(d => existentes.Contains(d.Nombre)).Select(d => d.Nombre).ToList();
@@ -279,15 +360,17 @@ internal static class ServicioCorredor
             {
                 string real = superficies.SurfaceNames().First(n => string.Equals(n, nombre, StringComparison.CurrentCultureIgnoreCase));
                 cs = superficies[real];
-                foreach (string c in cs.LinkCodes()) cs.RemoveLinkCode(c);
-                foreach (string b in cs.Boundaries.BoundaryNames()) cs.Boundaries.Remove(b);
-                if (!estiloId.IsNull) cs.SurfaceStyleId = estiloId;
+                foreach (string c in cs.LinkCodes().ToList()) cs.RemoveLinkCode(c);
+                foreach (string b in cs.Boundaries.BoundaryNames().ToList()) cs.Boundaries.Remove(b);
+                if (!estiloId.IsNull && !estiloId.IsErased) cs.SurfaceStyleId = estiloId;
             }
             else
             {
-                cs = estiloId.IsNull ? superficies.Add(nombre) : superficies.Add(nombre, estiloId);
+                PurgarSuperficieHuerfanaPorNombre(doc.Database, tr, nombre, idsVinculados);
+                cs = (estiloId.IsNull || estiloId.IsErased) ? superficies.Add(nombre) : superficies.Add(nombre, estiloId);
             }
 
+            cs.IsBuild = true;
             foreach (string codigo in codigos)
             {
                 if (!codigosCorredor.Contains(codigo))
@@ -305,7 +388,14 @@ internal static class ServicioCorredor
                 }
             }
             cs.OverhangCorrection = ACivil(voladizo);
-            cs.Boundaries.AddCorridorExtentsBoundary(NombreContorno);
+            try
+            {
+                cs.Boundaries.AddCorridorExtentsBoundary(NombreContorno);
+            }
+            catch (System.Exception ex)
+            {
+                avisos.Add($"{nombre}: no se pudo aplicar el contorno automático ({ex.Message}).");
+            }
             Registro.Info($"Superficie de corredor {nombre}: {string.Join(", ", codigos)} · voladizo {voladizo}.");
         }
 

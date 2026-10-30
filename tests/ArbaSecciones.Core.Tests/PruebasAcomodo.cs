@@ -90,16 +90,28 @@ public static class PruebasAcomodo
     }
 
     [Prueba]
+    public static void Una_sola_seccion_queda_centrada_en_el_area_util()
+    {
+        var r = Paginador.Paginar(new List<MedidaSeccion> { Seccion(0) }, Escala(200), Area());
+        var c = r.Laminas[0].Colocaciones[0];
+        // Sección de 200 × 50 mm en área útil de 420 × 290 mm → MargenX = (420 − 200) / 2 = 110, MargenY = (290 − 50) / 2 = 120.
+        Afirmar.Cerca(110, c.X);
+        Afirmar.Cerca(120, c.Y);
+    }
+
+    [Prueba]
     public static void Columnas_van_de_abajo_hacia_arriba_y_de_izquierda_a_derecha()
     {
         var r = Paginador.Paginar(Serie(0, 20, 7), Escala(200), Area());
         var c = r.Laminas[0].Colocaciones;
-        // Columna 1: y = 0, 60, 120, 180, 240; la columna 2 empieza en x = 210.
-        Afirmar.Cerca(0, c[0].X); Afirmar.Cerca(0, c[0].Y);
-        Afirmar.Cerca(0, c[1].X); Afirmar.Cerca(60, c[1].Y);
+        // 2 columnas de 200 mm + 10 mm separación = 410 mm → MargenX = (420 − 410) / 2 = 5.
+        // Columna 1 (5 secciones, alto 290 mm): y = 0, 60, 120, 180, 240; x = 5.
+        // Columna 2 (2 secciones, alto 110 mm): MargenY = (290 − 110) / 2 = 90 → y = 90, 150; x = 215.
+        Afirmar.Cerca(5, c[0].X); Afirmar.Cerca(0, c[0].Y);
+        Afirmar.Cerca(5, c[1].X); Afirmar.Cerca(60, c[1].Y);
         Afirmar.Cerca(240, c[4].Y);
-        Afirmar.Cerca(210, c[5].X); Afirmar.Cerca(0, c[5].Y);
-        Afirmar.Cerca(210, c[6].X); Afirmar.Cerca(60, c[6].Y);
+        Afirmar.Cerca(215, c[5].X); Afirmar.Cerca(90, c[5].Y);
+        Afirmar.Cerca(215, c[6].X); Afirmar.Cerca(150, c[6].Y);
     }
 
     [Prueba]
@@ -107,8 +119,10 @@ public static class PruebasAcomodo
     {
         var secciones = new List<MedidaSeccion> { Seccion(0, ancho: 40), Seccion(20, ancho: 20) };
         var c = Paginador.Paginar(secciones, Escala(200), Area()).Laminas[0].Colocaciones;
-        Afirmar.Cerca(0, c[0].X);
-        Afirmar.Cerca(50, c[1].X); // columna de 200 mm, sección de 100 mm → (200 − 100) / 2
+        // 1 columna de 200 mm centrada en 420 mm → MargenX = (420 − 200) / 2 = 110.
+        // Sección angosta de 100 mm centrada dentro de la columna de 200 mm → 110 + (200 − 100) / 2 = 160.
+        Afirmar.Cerca(110, c[0].X);
+        Afirmar.Cerca(160, c[1].X);
     }
 
     [Prueba]
@@ -116,12 +130,14 @@ public static class PruebasAcomodo
     {
         var secciones = Enumerable.Range(0, 5).Select(i => Seccion(i * 20, ancho: 20)).ToList(); // 100 × 50 mm
         var c = Paginador.Paginar(secciones, Escala(200), Area(OrdenAcomodo.PorFilas)).Laminas[0].Colocaciones;
-        Afirmar.Cerca(0, c[0].X); Afirmar.Cerca(240, c[0].Y);
-        Afirmar.Cerca(110, c[1].X); Afirmar.Cerca(240, c[1].Y);
-        Afirmar.Cerca(220, c[2].X); Afirmar.Cerca(240, c[2].Y);
-        // La cuarta ya no entra (220 + 100 + 10 + 100 = 430 > 420): baja a la segunda fila.
-        Afirmar.Cerca(0, c[3].X); Afirmar.Cerca(180, c[3].Y); // 290 − 50 − 10 − 50
-        Afirmar.Cerca(110, c[4].X); Afirmar.Cerca(180, c[4].Y);
+        // 2 filas de 50 mm + 10 mm = 110 mm → MargenY = (290 − 110) / 2 = 90.
+        // Fila 1 (3 secciones, ancho 320 mm): MargenX = (420 − 320) / 2 = 50; y = 290 − 90 − 50 = 150.
+        Afirmar.Cerca(50, c[0].X); Afirmar.Cerca(150, c[0].Y);
+        Afirmar.Cerca(160, c[1].X); Afirmar.Cerca(150, c[1].Y);
+        Afirmar.Cerca(270, c[2].X); Afirmar.Cerca(150, c[2].Y);
+        // Fila 2 (2 secciones, ancho 210 mm): MargenX = (420 − 210) / 2 = 105; y = 290 − 90 − 60 − 50 = 90.
+        Afirmar.Cerca(105, c[3].X); Afirmar.Cerca(90, c[3].Y);
+        Afirmar.Cerca(215, c[4].X); Afirmar.Cerca(90, c[4].Y);
     }
 
     [Prueba]
@@ -132,7 +148,8 @@ public static class PruebasAcomodo
         Afirmar.Cerca(50, zona.Y);
         Afirmar.Cerca(240, zona.Alto); // 290 − 40 de franja − 10 de separación
         var r = Paginador.Paginar(Serie(0, 20, 10), Escala(200), p);
-        Afirmar.Cerca(50, r.Laminas[0].Colocaciones[0].Y);
+        // 4 por columna = 230 mm en zona de 240 mm → MargenY = (240 − 230) / 2 = 5 → Y = 50 + 5 = 55.
+        Afirmar.Cerca(55, r.Laminas[0].Colocaciones[0].Y);
         Afirmar.Igual(8, r.Laminas[0].Cantidad); // 4 por columna × 2 columnas
         Afirmar.Igual(2, r.Laminas.Count);
     }

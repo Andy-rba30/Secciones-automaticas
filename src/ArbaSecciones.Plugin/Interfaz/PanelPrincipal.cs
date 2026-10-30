@@ -34,6 +34,14 @@ internal sealed partial class PanelPrincipal : UserControl
         pestanas.Items.Add(new TabItem { Header = "Presentaciones", Content = Ui.Desplazable(CrearPresentaciones()) });
         pestanas.Items.Add(new TabItem { Header = "Exportar", Content = Ui.Desplazable(CrearExportar()) });
 
+        // Al cambiar de pestaña en la paleta, actualizar automáticamente las listas desde el dibujo activo
+        // para que cualquier elemento agregado o eliminado en Civil 3D se refleje sin quedarse congelado.
+        pestanas.SelectionChanged += (_, e) =>
+        {
+            if (ReferenceEquals(e.Source, pestanas) && IsLoaded && !Ejecutor.Ocupado)
+                RefrescarListas();
+        };
+
         var barra = Ui.Linea(
             Ui.Boton("Guardar configuración…", GuardarConfiguracionComo),
             Ui.Boton("Cargar configuración…", CargarConfiguracionDesde),

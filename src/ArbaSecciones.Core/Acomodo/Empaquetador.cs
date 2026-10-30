@@ -2,7 +2,8 @@ namespace ArbaSecciones.Core.Acomodo;
 
 /// <summary>
 /// Llena una lámina con una secuencia de secciones en orden de progresiva y devuelve cuántas entraron.
-/// Coloca siempre el mayor número posible de secciones consecutivas (orden obligatorio).
+/// Coloca siempre el mayor número posible de secciones consecutivas (orden obligatorio) y centra el conjunto
+/// dentro de la zona de secciones del área útil.
 /// </summary>
 internal static class Empaquetador
 {
@@ -62,12 +63,18 @@ internal static class Empaquetador
         if (actual.Items.Count > 0) columnas.Add(actual);
 
         var resultado = new List<Colocacion>();
+        if (columnas.Count == 0) return resultado;
+
+        double anchoTotal = columnas[^1].Posicion + columnas[^1].Ancho;
+        double margenX = Math.Max(0, (zona.Ancho - anchoTotal) / 2);
+
         foreach (var col in columnas)
         {
-            double y = zona.Y;
+            double margenY = Math.Max(0, (zona.Alto - col.Alto) / 2);
+            double y = zona.Y + margenY;
             foreach (var (medida, tamano) in col.Items)
             {
-                double x = zona.X + col.Posicion + (col.Ancho - tamano.Ancho) / 2; // centrada en la columna
+                double x = zona.X + margenX + col.Posicion + (col.Ancho - tamano.Ancho) / 2; // centrada en la columna y en el área útil
                 resultado.Add(new Colocacion(medida, x, y, tamano.Ancho, tamano.Alto));
                 y += tamano.Alto + p.SeparacionV;
             }
@@ -110,13 +117,19 @@ internal static class Empaquetador
         if (actual.Items.Count > 0) filas.Add(actual);
 
         var resultado = new List<Colocacion>();
+        if (filas.Count == 0) return resultado;
+
+        double altoTotal = filas[^1].Posicion + filas[^1].Alto;
+        double margenY = Math.Max(0, (zona.Alto - altoTotal) / 2);
+
         foreach (var fila in filas)
         {
-            double x = zona.X;
-            double yInferiorFila = zona.Y + zona.Alto - fila.Posicion - fila.Alto;
+            double margenX = Math.Max(0, (zona.Ancho - fila.Ancho) / 2);
+            double x = zona.X + margenX;
+            double yInferiorFila = zona.Y + zona.Alto - margenY - fila.Posicion - fila.Alto;
             foreach (var (medida, tamano) in fila.Items)
             {
-                double y = yInferiorFila + (fila.Alto - tamano.Alto) / 2; // centrada en la fila
+                double y = yInferiorFila + (fila.Alto - tamano.Alto) / 2; // centrada en la fila y en el área útil
                 resultado.Add(new Colocacion(medida, x, y, tamano.Ancho, tamano.Alto));
                 x += tamano.Ancho + p.SeparacionH;
             }

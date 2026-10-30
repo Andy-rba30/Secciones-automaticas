@@ -72,6 +72,7 @@ internal sealed partial class PanelPrincipal
         LeerFormulario();
         Ejecutor.Ejecutar("Crear presentaciones", doc =>
         {
+            SincronizarAcomodoParaPresentaciones(doc);
             List<string> creadas = ServicioPresentaciones.Crear(doc, Cfg);
             _txPresentaciones.Text = $"{creadas.Count} presentaciones creadas:\n" + string.Join("\n", creadas);
             RefrescarMembrete(doc);
