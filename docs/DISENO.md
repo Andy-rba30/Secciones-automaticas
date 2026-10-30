@@ -22,6 +22,7 @@ El plugin solo lee el dibujo, llama a Core y aplica el resultado.
 | `GeneradorProgresivas` | Intervalo por tipo de elemento, puntos notables (PC, PT, TS, SC, CS, ST, PCC, SS, PI), manuales, duplicados con tolerancia |
 | `MedidaSeccion` | Tamaño de una vista separado en **gráfico** (modelo) y **anotación** (papel) |
 | `Paginador` + `Empaquetador` | Acomodo por columnas o filas y paginación por km o continua |
+| `UniformadorAlturas` | Altura envolvente de un conjunto de vistas y rango de elevación fijado (centrado, en la rejilla, sin recortar) |
 | `SugeridorEscala` | Menor denominador con el que entran las secciones, o con el que cada km cabe en una lámina |
 | `DatosLamina`, `PlantillaTexto` | Valores de los atributos del membrete (`{codigo}`, `{pi}`, `{n:000}`…) |
 | `DetectorEnvolvente` | Envolvente superior (rasante) e inferior (subrasante) de una sección y los códigos que la forman |
@@ -83,6 +84,10 @@ Al acomodar se fija la escala nueva, se vuelve a medir y se reacomodan las misma
 - **Por km**: se agrupa por km (1+000.00 ya es del km 1). Cada km empieza en lámina nueva, intenta entrar completo y,
   si no entra, se coloca el máximo de secciones consecutivas y el resto pasa a láminas de continuación.
 - **Continuo**: se llena cada lámina sin cortar por km.
+- **Altura uniforme** (`UniformarAlturas`): todas las secciones de una lámina toman el alto de la más alta; si ya no caben, las que sobran
+  pasan a la lámina siguiente. `UniformarTodoElTramo` usa una sola altura para todo. En el dibujo, `ServicioVistas.PaginarUniformizado`
+  fija el rango de elevación de cada vista (`UniformadorAlturas`: altura envolvente alineada a la rejilla, ventana centrada que siempre
+  contiene la demanda), regenera, vuelve a medir y repite hasta que las láminas no cambian.
 - Si una sección no entra sola, no se mueve nada: se listan esas progresivas y la menor escala con la que entrarían.
 - En el modelo, los marcos de lámina van en filas de 10 desde el punto base, en la capa `ARBA_SEC_MARCOS` (no imprimible).
 

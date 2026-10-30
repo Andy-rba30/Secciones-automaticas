@@ -264,4 +264,166 @@ public static class PruebasAcomodo
         var (x10, y10) = MarcosModelo.Origen(10, 156, 104, 20);
         Afirmar.Cerca(0, x10); Afirmar.Cerca(-124, y10);
     }
+
+    // ------------------------------------------------------------------ Uniformización de alturas
+
+    private static ParametrosAcomodo AreaUniforme(bool todoElTramo = false) => new()
+    {
+        AnchoUtil = 420,
+        AltoUtil = 290,
+        SeparacionH = 10,
+        SeparacionV = 10,
+        UniformarAlturas = true,
+        UniformarTodoElTramo = todoElTramo,
+    };
+
+    [Prueba]
+    public static void Altura_uniforme_es_la_mayor_demanda_alineada_a_la_rejilla()
+    {
+        // A: 100–115 (15 m). B: 102–130 (28 m, alineada 100–130 = 30). C: 101.3–118.9 (alineada 100–120 = 20).
+        var rangos = new[] { (100.0, 115.0), (102.0, 130.0), (101.3, 118.9) };
+        Afirmar.Cerca(30, UniformadorAlturas.AlturaUniforme(rangos, 5));
+        Afirmar.Cerca(20, UniformadorAlturas.AlturaAlineada(101.3, 118.9, 5));
+        Afirmar.Cerca(28, UniformadorAlturas.AlturaUniforme(rangos, 0)); // sin redondeo: el desnivel mayor
+        Afirmar.Cerca(0, UniformadorAlturas.AlturaUniforme(Array.Empty<(double, double)>(), 5));
+    }
+
+    [Prueba]
+    public static void Rango_fijado_contiene_siempre_la_demanda_y_cae_en_la_rejilla()
+    {
+        var rangos = new List<(double, double)>();
+        var azar = new Random(1234);
+        for (int i = 0; i < 200; i++)
+        {
+            double min = 80 + azar.NextDouble() * 60;
+            rangos.Add((min, min + azar.NextDouble() * 35));
+        }
+
+        foreach (double g in new[] { 5.0, 2.5, 1.0, 0.0 })
+        {
+            double h = UniformadorAlturas.AlturaUniforme(rangos, g);
+            foreach (var (min, max) in rangos)
+            {
+                var (fMin, fMax) = UniformadorAlturas.RangoFijado(min, max, h, g);
+                Afirmar.Verdadero(fMin <= min + 1e-9, $"piso {fMin} > mínimo {min} (g={g})");
+                Afirmar.Verdadero(fMax >= max - 1e-9, $"techo {fMax} < máximo {max} (g={g})");
+                Afirmar.Cerca(h, fMax - fMin, 1e-9);
+                if (g > 0) Afirmar.Cerca(0, Math.IEEERemainder(fMin, g), 1e-9, $"el piso {fMin} no está en la rejilla de {g}");
+            }
+        }
+    }
+
+    [Prueba]
+    public static void Rango_fijado_queda_centrado_cuando_la_rejilla_lo_permite()
+    {
+        // Demanda 100–115 con altura 30: centro 107.5 → piso 90, techo 120 (15 m de aire a cada lado… alineado a 5 m).
+        var (min, max) = UniformadorAlturas.RangoFijado(100, 115, 30, 5);
+        Afirmar.Cerca(90, min);
+        Afirmar.Cerca(120, max);
+        // La demanda más alta define la altura y queda exacta.
+        var (m2, x2) = UniformadorAlturas.RangoFijado(102, 130, 30, 5);
+        Afirmar.Cerca(100, m2);
+        Afirmar.Cerca(130, x2);
+        Afirmar.Lanza<ArgumentOutOfRangeException>(() => UniformadorAlturas.RangoFijado(100, 130, 20, 5));
+    }
+
+    [Prueba]
+    public static void Paginador_uniformiza_alto_por_lamina_y_alinea_filas()
+    {
+        // Altos de 10, 14, 12, 10, 14, 12 m a 1:200 → 50, 70, 60, 50, 70, 60 mm.
+        double[] altos = { 10, 14, 12, 10, 14, 12 };
+        var secciones = altos.Select((a, i) => Seccion(i * 20, alto: a)).ToList();
+
+        var sin = Paginador.Paginar(secciones, Escala(200), Area());
+        Afirmar.Verdadero(!sin.Laminas[0].AlturasUniformes);
+
+        var r = Paginador.Paginar(secciones, Escala(200), AreaUniforme());
+        Afirmar.Verdadero(r.Valido);
+        Afirmar.Igual(1, r.Laminas.Count);
+        var l = r.Laminas[0];
+        Afirmar.Igual(6, l.Cantidad);
+        Afirmar.Verdadero(l.AlturasUniformes);
+        foreach (var c in l.Colocaciones) Afirmar.Cerca(70, c.Alto);
+        Afirmar.Cerca(70, l.AltoMaximo);
+
+        // Dos columnas de 3: las filas coinciden (misma Y) y las cajas no se solapan.
+        for (int i = 0; i < 3; i++)
+            Afirmar.Cerca(l.Colocaciones[i].Y, l.Colocaciones[i + 3].Y);
+        Afirmar.Cerca(l.Colocaciones[0].Y + 70 + 10, l.Colocaciones[1].Y);
+    }
+
+    [Prueba]
+    public static void Paginador_sin_la_opcion_no_cambia_los_altos()
+    {
+        var secciones = new List<MedidaSeccion> { Seccion(0, alto: 10), Seccion(20, alto: 14) };
+        var r = Paginador.Paginar(secciones, Escala(200), Area());
+        Afirmar.Cerca(50, r.Laminas[0].Colocaciones[0].Alto);
+        Afirmar.Cerca(70, r.Laminas[0].Colocaciones[1].Alto);
+        Afirmar.Verdadero(!r.Laminas[0].AlturasUniformes);
+    }
+
+    [Prueba]
+    public static void Uniformizar_pasa_a_la_lamina_siguiente_lo_que_ya_no_cabe()
+    {
+        // Ancho 45 m → 225 mm: no caben dos columnas. Altos 50, 75 y 100 mm.
+        var secciones = new List<MedidaSeccion>
+        {
+            Seccion(0, ancho: 45, alto: 10),
+            Seccion(20, ancho: 45, alto: 15),
+            Seccion(40, ancho: 45, alto: 20),
+        };
+
+        var sin = Paginador.Paginar(secciones, Escala(200), Area());
+        Afirmar.Igual(1, sin.Laminas.Count); // 50 + 10 + 75 + 10 + 100 = 245 ≤ 290
+
+        var r = Paginador.Paginar(secciones, Escala(200), AreaUniforme());
+        Afirmar.Verdadero(r.Valido);
+        Afirmar.Igual(2, r.Laminas.Count);
+        Afirmar.Igual(2, r.Laminas[0].Cantidad);
+        Afirmar.Verdadero(r.Laminas[0].AlturasUniformes);
+        Afirmar.Cerca(75, r.Laminas[0].AltoMaximo);   // cada lámina con su propia envolvente
+        Afirmar.Igual(1, r.Laminas[1].Cantidad);
+        Afirmar.Cerca(100, r.Laminas[1].AltoMaximo);
+        Afirmar.Cerca(40, r.Laminas[1].ProgresivaInicial);
+    }
+
+    [Prueba]
+    public static void Uniformizar_todo_el_tramo_usa_la_misma_altura_en_todas_las_laminas()
+    {
+        var secciones = new List<MedidaSeccion>
+        {
+            Seccion(0, ancho: 45, alto: 10),
+            Seccion(20, ancho: 45, alto: 15),
+            Seccion(40, ancho: 45, alto: 20),
+        };
+
+        var r = Paginador.Paginar(secciones, Escala(200), AreaUniforme(todoElTramo: true));
+        Afirmar.Verdadero(r.Valido);
+        Afirmar.Igual(2, r.Laminas.Count);
+        foreach (var lamina in r.Laminas)
+            foreach (var c in lamina.Colocaciones)
+                Afirmar.Cerca(100, c.Alto);
+    }
+
+    [Prueba]
+    public static void Configuracion_uniformiza_por_lamina_por_defecto_y_lo_pasa_al_acomodo()
+    {
+        var cfg = new ConfiguracionArba();
+        Afirmar.Verdadero(cfg.Acomodo.UniformarAlturasPorLamina);
+        Afirmar.Cerca(5, cfg.Acomodo.IntervaloRejillaElevacion);
+        cfg.Membrete.AreaMinX = 0; cfg.Membrete.AreaMaxX = 420;
+        cfg.Membrete.AreaMinY = 0; cfg.Membrete.AreaMaxY = 290;
+
+        var p = cfg.ParametrosAcomodo();
+        Afirmar.Verdadero(p.UniformarAlturas);
+        Afirmar.Verdadero(!p.UniformarTodoElTramo);
+
+        cfg.Acomodo.UniformarTodoElTramo = true;
+        Afirmar.Verdadero(cfg.ParametrosAcomodo().UniformarTodoElTramo);
+
+        cfg.Acomodo.UniformarAlturasPorLamina = false; // sin la opción principal no se uniformiza nada
+        var sin = cfg.ParametrosAcomodo();
+        Afirmar.Verdadero(!sin.UniformarAlturas);
+        Afirmar.Verdadero(!sin.UniformarTodoElTramo);
+    }
 }

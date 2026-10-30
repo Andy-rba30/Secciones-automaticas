@@ -18,6 +18,15 @@ public sealed class ParametrosAcomodo
     /// <summary>Longitud de cada grupo de paginación. 1000 = un km.</summary>
     public double LongitudTramo { get; init; } = 1000;
 
+    /// <summary>
+    /// Todas las secciones de una misma lámina tienen la misma altura (la mayor de la lámina), para que
+    /// queden alineadas en filas y columnas. El rango de elevación de las vistas se ajusta en el dibujo.
+    /// </summary>
+    public bool UniformarAlturas { get; init; }
+
+    /// <summary>Con <see cref="UniformarAlturas"/>: una sola altura (la mayor) para todas las secciones del tramo.</summary>
+    public bool UniformarTodoElTramo { get; init; }
+
     /// <summary>Esquina inferior izquierda (relativa al área útil) y tamaño de la zona donde van las secciones.</summary>
     public (double X, double Y, double Ancho, double Alto) ZonaSecciones
     {

@@ -40,6 +40,10 @@ internal static class ServicioVistas
         // 3) Vistas que faltan (en una zona de espera), limpieza de duplicadas y estilo en todas.
         int creadas = AsegurarVistas(db, grupoId, estiloId, bandasId, zonaEspera, PasoEspera(cfg));
 
+        // 3b) Si se van a uniformizar alturas, el rango automático de cada vista es la demanda real de la sección
+        //     (terreno, rasante, taludes…): se restaura antes de medir para no arrastrar rangos fijados en un acomodo anterior.
+        if (cfg.Acomodo.UniformarAlturasPorLamina) RestaurarRangoAutomatico(db, grupoId);
+
         // 4) Regenerar para que las extensiones respondan a la escala de anotación vigente.
         doc.Editor.Regen();
 
@@ -48,6 +52,162 @@ internal static class ServicioVistas
         Registro.Info($"Vistas medidas: {vistas.Count} ({creadas} nuevas) a escala {conversor.Escala}.");
         return new Medicion(doc.Name, grupoId, conversor, vistas);
     }
+
+    // ------------------------------------------------------------------------------------------------
+    // Uniformización de alturas
+    // ------------------------------------------------------------------------------------------------
+
+    /// <summary>Máximo de vueltas medir → uniformizar → paginar hasta que las láminas no cambien de composición.</summary>
+    private const int MaxIteraciones = 4;
+
+    /// <summary>Tolerancia al comprobar que el rango fijado contiene al requerido (unidades de modelo).</summary>
+    private const double TolCobertura = 1e-6;
+
+    /// <summary>Devuelve todas las vistas del grupo al rango de elevación automático.</summary>
+    public static void RestaurarRangoAutomatico(Database db, ObjectId grupoId)
+    {
+        using Transaction tr = db.TransactionManager.StartTransaction();
+        var grupo = (C3D.SampleLineGroup)tr.GetObject(grupoId, OpenMode.ForRead);
+        foreach (ObjectId lineaId in grupo.GetSampleLineIds())
+        {
+            if (lineaId.IsNull || lineaId.IsErased) continue;
+            if (tr.GetObject(lineaId, OpenMode.ForRead) is not C3D.SampleLine linea || linea.IsErased) continue;
+            foreach (ObjectId id in VistasDe(tr, linea))
+            {
+                var vista = (C3D.SectionView)tr.GetObject(id, OpenMode.ForRead);
+                if (vista.IsElevationRangeAutomatic) continue;
+                vista.UpgradeOpen();
+                vista.IsElevationRangeAutomatic = true;
+            }
+        }
+        tr.Commit();
+    }
+
+    /// <summary>
+    /// Fija el mismo alto de elevación a todas las vistas indicadas, sin perder nada de lo que hoy muestran.
+    /// <list type="number">
+    /// <item>Demanda de cada vista: su rango de elevación actual (automático, o sea el que abarca terreno, rasante, cunetas y taludes).
+    /// Los títulos y las bandas están fuera del rango de elevación y no cambian de alto.</item>
+    /// <item>Altura envolvente: la mayor demanda del conjunto, alineada a la rejilla (múltiplo de <paramref name="intervaloGrilla"/>).</item>
+    /// <item>Cada vista recibe un rango de esa altura, centrado en su demanda y con el piso en la rejilla.</item>
+    /// <item>Se comprueba que el rango leído contenga la demanda; si no, la vista vuelve a automático.</item>
+    /// </list>
+    /// Las vistas deben estar en rango automático al llamar (ver <see cref="RestaurarRangoAutomatico"/>).
+    /// </summary>
+    /// <returns>La altura uniforme aplicada, en unidades de modelo.</returns>
+    public static double UniformizarRangosElevacion(Transaction tr, List<ObjectId> vistas, double intervaloGrilla)
+    {
+        ArgumentNullException.ThrowIfNull(tr);
+        ArgumentNullException.ThrowIfNull(vistas);
+        if (vistas.Count == 0) return 0;
+
+        var demanda = new List<(ObjectId Id, double Min, double Max)>();
+        foreach (ObjectId id in vistas)
+        {
+            if (id.IsNull || id.IsErased) continue;
+            var vista = (C3D.SectionView)tr.GetObject(id, OpenMode.ForRead);
+            demanda.Add((id, vista.ElevationMin, vista.ElevationMax));
+        }
+        if (demanda.Count == 0) return 0;
+
+        double altura = UniformadorAlturas.AlturaUniforme(demanda.Select(d => (d.Min, d.Max)), intervaloGrilla);
+
+        foreach (var (id, min, max) in demanda)
+        {
+            var (fijadoMin, fijadoMax) = UniformadorAlturas.RangoFijado(min, max, altura, intervaloGrilla);
+            var vista = (C3D.SectionView)tr.GetObject(id, OpenMode.ForWrite);
+            vista.IsElevationRangeAutomatic = false;
+            vista.ElevationMin = fijadoMin;
+            vista.ElevationMax = fijadoMax;
+
+            if (vista.ElevationMin > min + TolCobertura || vista.ElevationMax < max - TolCobertura)
+            {
+                vista.IsElevationRangeAutomatic = true;
+                Registro.Aviso($"La vista {id.Handle} no admitió el rango {fijadoMin:0.###}–{fijadoMax:0.###} (necesita {min:0.###}–{max:0.###}); se dejó en automático para no recortar.");
+            }
+        }
+        return altura;
+    }
+
+    /// <summary>
+    /// Pagina la medición. Con la uniformización activa fija los rangos de elevación por lámina (o de todo el tramo),
+    /// regenera, vuelve a medir y repite hasta que la composición de las láminas ya no cambia (al crecer las vistas
+    /// pueden pasar secciones a la lámina siguiente). Devuelve la medición vigente y su acomodo.
+    /// </summary>
+    public static (Medicion Medicion, ResultadoAcomodo Resultado) PaginarUniformizado(Document doc, ConfiguracionArba cfg, Medicion medicion)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+        ArgumentNullException.ThrowIfNull(cfg);
+        ArgumentNullException.ThrowIfNull(medicion);
+        Database db = doc.Database;
+        ParametrosAcomodo p = cfg.ParametrosAcomodo();
+        double intervalo = cfg.Acomodo.IntervaloRejillaElevacion;
+
+        ResultadoAcomodo r = Paginador.Paginar(medicion.Medidas, medicion.Conversor, p);
+        if (!p.UniformarAlturas || !r.Valido) return (medicion, r);
+
+        string? aplicada = null;
+        for (int i = 0; i < MaxIteraciones; i++)
+        {
+            List<List<ObjectId>> grupos = GruposDeVistas(r, medicion, p.UniformarTodoElTramo);
+            string firma = Firma(r, p.UniformarTodoElTramo);
+            if (firma == aplicada) return (medicion, r); // lo aplicado coincide con la composición de láminas resultante
+
+            (medicion, r) = AplicarYRemedir(doc, db, cfg, medicion, grupos, intervalo, restaurar: i > 0, p);
+            aplicada = firma;
+            if (!r.Valido) return (medicion, r);
+        }
+        if (Firma(r, p.UniformarTodoElTramo) == aplicada) return (medicion, r);
+
+        // No se estabilizó: una sola altura para todo el tramo siempre da una composición coherente.
+        Registro.Aviso("La uniformización por lámina no se estabilizó; se usó una sola altura para todo el tramo.");
+        var todas = new List<List<ObjectId>> { medicion.Vistas.Select(v => v.VistaId).ToList() };
+        var pTramo = new ParametrosAcomodo
+        {
+            AnchoUtil = p.AnchoUtil, AltoUtil = p.AltoUtil, SeparacionH = p.SeparacionH, SeparacionV = p.SeparacionV,
+            AltoFranjaCuadro = p.AltoFranjaCuadro, PosicionFranja = p.PosicionFranja, Orden = p.Orden,
+            Paginacion = p.Paginacion, LongitudTramo = p.LongitudTramo, UniformarAlturas = true, UniformarTodoElTramo = true,
+        };
+        return AplicarYRemedir(doc, db, cfg, medicion, todas, intervalo, restaurar: true, pTramo);
+    }
+
+    private static (Medicion Medicion, ResultadoAcomodo Resultado) AplicarYRemedir(Document doc, Database db, ConfiguracionArba cfg,
+        Medicion medicion, List<List<ObjectId>> grupos, double intervalo, bool restaurar, ParametrosAcomodo p)
+    {
+        if (restaurar)
+        {
+            RestaurarRangoAutomatico(db, medicion.GrupoId);
+            doc.Editor.Regen(); // el rango automático vuelve a reflejar la demanda real
+        }
+
+        using (Transaction tr = db.TransactionManager.StartTransaction())
+        {
+            foreach (List<ObjectId> vistas in grupos)
+                UniformizarRangosElevacion(tr, vistas, intervalo);
+            tr.Commit();
+        }
+
+        doc.Editor.Regen(); // las extensiones deben responder a los rangos nuevos antes de medir
+        var vistasMedidas = Medir(db, medicion.GrupoId, medicion.Conversor);
+        var nueva = new Medicion(medicion.Documento, medicion.GrupoId, medicion.Conversor, vistasMedidas);
+        Registro.Info($"Alturas uniformizadas en {grupos.Count} grupo(s) de vistas (múltiplo de {intervalo:0.###}).");
+        return (nueva, Paginador.Paginar(nueva.Medidas, nueva.Conversor, p));
+    }
+
+    private static List<List<ObjectId>> GruposDeVistas(ResultadoAcomodo r, Medicion medicion, bool todoElTramo)
+    {
+        var porId = medicion.Vistas.ToDictionary(v => v.Medida.Id, v => v.VistaId);
+        if (todoElTramo) return new List<List<ObjectId>> { medicion.Vistas.Select(v => v.VistaId).ToList() };
+        return r.Laminas
+            .Select(l => l.Colocaciones.Select(c => porId[c.Seccion.Id]).ToList())
+            .ToList();
+    }
+
+    /// <summary>Identifica la composición de las láminas (qué secciones van en cada una).</summary>
+    private static string Firma(ResultadoAcomodo r, bool todoElTramo) =>
+        todoElTramo
+            ? "tramo"
+            : string.Join("|", r.Laminas.Select(l => string.Join(",", l.Colocaciones.Select(c => c.Seccion.Id))));
 
     private static double PasoEspera(ConfiguracionArba cfg) =>
         (cfg.Muestreo.AnchoIzquierdo + cfg.Muestreo.AnchoDerecho) * 1.6 + 10;

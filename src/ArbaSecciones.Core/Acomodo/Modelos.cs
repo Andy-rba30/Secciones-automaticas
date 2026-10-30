@@ -120,6 +120,12 @@ public sealed class Lamina
     public IReadOnlyList<Colocacion> Colocaciones { get; }
 
     public int Cantidad => Colocaciones.Count;
+
+    /// <summary>Alto (papel) de la sección más alta de la lámina.</summary>
+    public double AltoMaximo => Colocaciones.Max(c => c.Alto);
+
+    /// <summary>True si todas las secciones de la lámina tienen el mismo alto.</summary>
+    public bool AlturasUniformes => Colocaciones.All(c => Math.Abs(c.Alto - Colocaciones[0].Alto) <= 1e-6);
     public double ProgresivaInicial => Colocaciones.Min(c => c.Seccion.Progresiva);
     public double ProgresivaFinal => Colocaciones.Max(c => c.Seccion.Progresiva);
 }

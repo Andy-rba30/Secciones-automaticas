@@ -1,4 +1,4 @@
-ArbaSecciones 1.3 para Civil 3D 2027
+ArbaSecciones 1.4 para Civil 3D 2027
 
 Comandos
   ARBASEC     Abre la paleta ARBA · Secciones (también en la cinta: pestaña ARBA > Secciones).

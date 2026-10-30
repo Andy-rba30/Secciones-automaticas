@@ -29,6 +29,9 @@ internal sealed partial class PanelPrincipal
     private readonly TextBox _txSeparacionH = Ui.Caja();
     private readonly TextBox _txSeparacionV = Ui.Caja();
     private readonly TextBox _txSeparacionLaminas = Ui.Caja();
+    private readonly CheckBox _chkUniformar = Ui.Casilla("Uniformizar altura de secciones por lámina", valor: true);
+    private readonly CheckBox _chkUniformarTramo = Ui.Casilla("Usar la misma altura en todo el tramo (no solo por lámina)");
+    private readonly TextBox _txIntervaloRejilla = Ui.Caja();
     private readonly TextBlock _lbBase = Ui.Texto("", atenuado: true);
     private readonly TextBox _txResumen = Ui.Informe(170);
     private readonly ComboBox _cbLaminaPrevia = Ui.Combo();
@@ -54,6 +57,10 @@ internal sealed partial class PanelPrincipal
         _chkVertical.Unchecked += (_, _) => AlCambiarEscala();
         _cbOrden.SelectionChanged += (_, _) => AlCambiarEscala();
         _cbPaginacion.SelectionChanged += (_, _) => AlCambiarEscala();
+        _chkUniformar.Checked += (_, _) => AlCambiarEscala();
+        _chkUniformar.Unchecked += (_, _) => AlCambiarEscala();
+        _chkUniformarTramo.Checked += (_, _) => AlCambiarEscala();
+        _chkUniformarTramo.Unchecked += (_, _) => AlCambiarEscala();
         _cbLaminaPrevia.SelectionChanged += (_, _) => _vistaPrevia.Mostrar(_ultimoResultado, _cbLaminaPrevia.SelectedIndex);
 
         var escala = Ui.Formulario();
@@ -72,6 +79,9 @@ internal sealed partial class PanelPrincipal
         Ui.Fila(acomodo, "Separación horizontal (papel)", _txSeparacionH);
         Ui.Fila(acomodo, "Separación vertical (papel)", _txSeparacionV);
         Ui.Fila(acomodo, "Separación entre láminas (papel)", _txSeparacionLaminas);
+        Ui.Fila(acomodo, "", _chkUniformar);
+        Ui.Fila(acomodo, "", _chkUniformarTramo);
+        Ui.Fila(acomodo, "Múltiplo de altura (modelo, 0 = sin redondeo)", _txIntervaloRejilla);
 
         return Ui.Pila(
             Ui.Grupo("Escala de las secciones", Ui.Pila(
@@ -110,6 +120,9 @@ internal sealed partial class PanelPrincipal
             _txSeparacionH.Text = Ui.Num(a.SeparacionH);
             _txSeparacionV.Text = Ui.Num(a.SeparacionV);
             _txSeparacionLaminas.Text = Ui.Num(a.SeparacionLaminas);
+            _chkUniformar.IsChecked = a.UniformarAlturasPorLamina;
+            _chkUniformarTramo.IsChecked = a.UniformarTodoElTramo;
+            _txIntervaloRejilla.Text = Ui.Num(a.IntervaloRejillaElevacion);
             _lbBase.Text = a.BaseX.HasValue && a.BaseY.HasValue
                 ? $"({Ui.Num(a.BaseX.Value, "0.###")}, {Ui.Num(a.BaseY.Value, "0.###")})"
                 : "Se pedirá en pantalla al acomodar.";
@@ -136,6 +149,10 @@ internal sealed partial class PanelPrincipal
         a.SeparacionH = Ui.Numero(_txSeparacionH, "Separación horizontal");
         a.SeparacionV = Ui.Numero(_txSeparacionV, "Separación vertical");
         a.SeparacionLaminas = Ui.Numero(_txSeparacionLaminas, "Separación entre láminas");
+        a.UniformarAlturasPorLamina = _chkUniformar.IsChecked == true;
+        a.UniformarTodoElTramo = _chkUniformarTramo.IsChecked == true;
+        a.IntervaloRejillaElevacion = Ui.Numero(_txIntervaloRejilla, "Múltiplo de altura");
+        if (a.IntervaloRejillaElevacion < 0) throw new ErrorUsuario("El múltiplo de altura no puede ser negativo.");
         if (a.LongitudTramo <= 0) throw new ErrorUsuario("La longitud de cada tramo debe ser mayor que cero.");
         if (a.SeparacionH < 0 || a.SeparacionV < 0 || a.SeparacionLaminas < 0) throw new ErrorUsuario("Las separaciones no pueden ser negativas.");
     }
@@ -204,6 +221,8 @@ internal sealed partial class PanelPrincipal
     {
         if (_cargando) return;
         _cbEscalaV.IsEnabled = _chkVertical.IsChecked == true;
+        _chkUniformarTramo.IsEnabled = _chkUniformar.IsChecked == true;
+        _txIntervaloRejilla.IsEnabled = _chkUniformar.IsChecked == true;
         ActualizarInfoArea();
         ResimularEstimado();
     }
@@ -211,6 +230,8 @@ internal sealed partial class PanelPrincipal
     private void ActualizarInfoEscala()
     {
         _cbEscalaV.IsEnabled = _chkVertical.IsChecked == true;
+        _chkUniformarTramo.IsEnabled = _chkUniformar.IsChecked == true;
+        _txIntervaloRejilla.IsEnabled = _chkUniformar.IsChecked == true;
         ConversorEscala? c = ConversorActual();
         if (c == null)
         {
@@ -287,10 +308,11 @@ internal sealed partial class PanelPrincipal
             var zonaEspera = new Point3d(puntoBase.X, puntoBase.Y + subir, 0);
 
             Medicion medicion = ServicioVistas.PrepararYMedir(doc, Cfg, grupoId, zonaEspera);
-            Estado.UltimaMedicion = medicion;
             CargarAcomodo(); // el estilo puede haber cambiado (copia con exageración)
 
-            ResultadoAcomodo r = Paginador.Paginar(medicion.Medidas, medicion.Conversor, Cfg.ParametrosAcomodo());
+            // Con la uniformización activa fija los rangos de elevación, vuelve a medir y pagina con las alturas finales.
+            (medicion, ResultadoAcomodo r) = ServicioVistas.PaginarUniformizado(doc, Cfg, medicion);
+            Estado.UltimaMedicion = medicion;
             MostrarResultado(r, estimado: false);
 
             if (!r.Valido)
@@ -355,10 +377,10 @@ internal sealed partial class PanelPrincipal
         var zonaEspera = new Point3d(puntoBase.Value.X, puntoBase.Value.Y + subir, 0);
 
         Medicion medicion = ServicioVistas.PrepararYMedir(doc, Cfg, grupoId, zonaEspera);
-        Estado.UltimaMedicion = medicion;
         CargarAcomodo();
 
-        ResultadoAcomodo r = Paginador.Paginar(medicion.Medidas, medicion.Conversor, Cfg.ParametrosAcomodo());
+        (medicion, ResultadoAcomodo r) = ServicioVistas.PaginarUniformizado(doc, Cfg, medicion);
+        Estado.UltimaMedicion = medicion;
         MostrarResultado(r, estimado: false);
         if (r.Valido)
         {

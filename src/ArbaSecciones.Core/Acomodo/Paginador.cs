@@ -88,6 +88,9 @@ public static class Paginador
             return new ResultadoAcomodo(conversor, parametros, Array.Empty<Lamina>(), noEntran, sugerida);
         }
 
+        if (parametros.UniformarAlturas && parametros.UniformarTodoElTramo)
+            items = UniformarTodoElTramo(items);
+
         var laminas = new List<Lamina>();
         foreach (var grupo in Agrupar(items, parametros))
         {
@@ -97,6 +100,8 @@ public static class Paginador
             while (desde < grupo.Items.Count)
             {
                 var colocadas = Empaquetador.Llenar(grupo.Items, desde, parametros);
+                if (parametros.UniformarAlturas && !parametros.UniformarTodoElTramo && colocadas.Count > 1)
+                    colocadas = UniformarLamina(grupo.Items, desde, parametros, colocadas);
                 if (colocadas.Count == 0)
                     throw new InvalidOperationException("No se pudo colocar ninguna sección en una lámina vacía."); // no debería pasar: ya se validó que entran solas
                 laminas.Add(new Lamina(laminas.Count + 1, grupo.Clave, parte, colocadas));
@@ -108,6 +113,33 @@ public static class Paginador
         }
 
         return new ResultadoAcomodo(conversor, parametros, laminas, Array.Empty<MedidaSeccion>(), null);
+    }
+
+    /// <summary>Todas las secciones con el alto de la más alta.</summary>
+    private static List<(MedidaSeccion Medida, Tamano Tamano)> UniformarTodoElTramo(List<(MedidaSeccion Medida, Tamano Tamano)> items)
+    {
+        if (items.Count == 0) return items;
+        double alto = items.Max(i => i.Tamano.Alto);
+        return items.Select(i => (Medida: i.Medida, Tamano: new Tamano(i.Tamano.Ancho, alto))).ToList();
+    }
+
+    /// <summary>
+    /// Iguala el alto de las secciones de una lámina al de la más alta (envolvente máxima). Como al crecer pueden
+    /// dejar de caber todas, prueba con el mayor número de secciones consecutivas que sigue entrando ya uniformizado;
+    /// las que sobran pasan a la lámina siguiente. Con una sola sección el resultado es ella misma.
+    /// </summary>
+    private static List<Colocacion> UniformarLamina(List<(MedidaSeccion Medida, Tamano Tamano)> items, int desde, ParametrosAcomodo p,
+        List<Colocacion> iniciales)
+    {
+        for (int k = iniciales.Count; k >= 1; k--)
+        {
+            var tramo = items.Skip(desde).Take(k).ToList();
+            double alto = tramo.Max(i => i.Tamano.Alto);
+            var uniformes = tramo.Select(i => (Medida: i.Medida, Tamano: new Tamano(i.Tamano.Ancho, alto))).ToList();
+            var colocadas = Empaquetador.Llenar(uniformes, 0, p);
+            if (colocadas.Count == k) return colocadas;
+        }
+        return iniciales;
     }
 
     /// <summary>Índice de km (o del tramo configurado) de una progresiva. 1+000.00 ya pertenece al km 1.</summary>
@@ -163,6 +195,8 @@ public static class SugeridorEscala
             Orden = p.Orden,
             Paginacion = ModoPaginacion.PorKilometro,
             LongitudTramo = p.LongitudTramo,
+            UniformarAlturas = p.UniformarAlturas,
+            UniformarTodoElTramo = p.UniformarTodoElTramo,
         };
 
         foreach (double d in (candidatas ?? EscalasNormalizadas.Denominadores).OrderBy(x => x))

@@ -56,6 +56,20 @@ Abre Civil 3D 2027: pestaña **ARBA › Secciones** o el comando `ARBASEC`. La p
 
 Cada pestaña ejecuta solo su etapa. Volver a ejecutar no duplica: pregunta si reemplazar líneas y presentaciones, y reacomoda las vistas existentes.
 
+## Cambios en 1.4.0
+
+- **Uniformizar altura de secciones por lámina** (pestaña Acomodo, activado por defecto): todas las vistas de una misma lámina quedan con
+  el mismo alto y la misma cota de rejilla, alineadas en filas y columnas, **sin recortar terreno, rasante, taludes ni bandas**.
+  - Demanda real de cada vista = su rango de elevación automático. Altura envolvente = la mayor demanda de la lámina, alineada a un
+    múltiplo de la rejilla (*Múltiplo de altura*, 5 por defecto; 0 = sin redondeo). Cada vista queda centrada y con el piso en la rejilla;
+    se comprueba que el rango fijado contiene al requerido y, si la API no lo admite, la vista vuelve a automático.
+  - Opción *Usar la misma altura en todo el tramo*: una sola altura para todas las láminas.
+  - Como al crecer las vistas pueden pasar secciones a la lámina siguiente, el plugin repite medir → uniformizar → paginar (máx. 4 vueltas) hasta que
+    la composición de las láminas se estabiliza; si no, usa una sola altura para todo el tramo.
+- Core: `UniformadorAlturas` (altura envolvente y rango fijado), `ParametrosAcomodo.UniformarAlturas/UniformarTodoElTramo`, simulación en
+  `Paginador` (`Lamina.AlturasUniformes`, `Lamina.AltoMaximo`) y `ConfigAcomodo.UniformarAlturasPorLamina/UniformarTodoElTramo/IntervaloRejillaElevacion`.
+- Plugin: `ServicioVistas.UniformizarRangosElevacion`, `RestaurarRangoAutomatico` y `PaginarUniformizado`. 74 pruebas (8 nuevas).
+
 ## Cambios en 1.3.0
 
 - **Resiliencia en superficies de corredor y materiales**: purga automática de entradas `CorridorSurface` huérfanas cuando el usuario elimina

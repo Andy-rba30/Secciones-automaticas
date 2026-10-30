@@ -33,6 +33,8 @@ public sealed class ConfiguracionArba
         Orden = Acomodo.Orden,
         Paginacion = Acomodo.Paginacion,
         LongitudTramo = Acomodo.LongitudTramo,
+        UniformarAlturas = Acomodo.UniformarAlturasPorLamina,
+        UniformarTodoElTramo = Acomodo.UniformarAlturasPorLamina && Acomodo.UniformarTodoElTramo,
     };
 
     /// <summary>Repone secciones nulas que pudieran venir de un JSON incompleto o editado a mano.</summary>
@@ -54,6 +56,7 @@ public sealed class ConfiguracionArba
         Membrete ??= new ConfigMembrete();
         Membrete.Atributos ??= ConfigMembrete.AtributosPorDefecto();
         Acomodo ??= new ConfigAcomodo();
+        if (!(Acomodo.IntervaloRejillaElevacion >= 0)) Acomodo.IntervaloRejillaElevacion = UniformadorAlturas.IntervaloPorDefecto;
         Presentaciones ??= new ConfigPresentaciones();
         Exportacion ??= new ConfigExportacion();
         Exportacion.Papel ??= string.Empty;
@@ -154,6 +157,18 @@ public sealed class ConfigAcomodo
     public double SeparacionLaminas { get; set; } = 100;
 
     public double LongitudTramo { get; set; } = 1000;
+
+    /// <summary>
+    /// Iguala la altura (rango de elevación) de las vistas de cada lámina a la de la más alta, sin recortar terreno,
+    /// rasante ni bandas, para que las secciones queden alineadas en cuadrícula.
+    /// </summary>
+    public bool UniformarAlturasPorLamina { get; set; } = true;
+
+    /// <summary>Con la uniformización activa: la misma altura para todo el tramo y no solo por lámina.</summary>
+    public bool UniformarTodoElTramo { get; set; }
+
+    /// <summary>Múltiplo, en unidades de modelo, al que se redondea la altura y el piso de la vista. 0 = sin redondeo.</summary>
+    public double IntervaloRejillaElevacion { get; set; } = UniformadorAlturas.IntervaloPorDefecto;
 
     /// <summary>Punto base del acomodo en el modelo. Null = se pide en pantalla.</summary>
     public double? BaseX { get; set; }
